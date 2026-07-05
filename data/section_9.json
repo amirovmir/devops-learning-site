@@ -1,0 +1,175 @@
+{
+ "phase": "Phase 4 — Cloud + Monitoring + Security",
+ "section": "☁️ Cloud Platform (AWS / GCP / Azure)",
+ "topics": [
+  {
+   "title": "IAM: пользователи, роли, политики (JSON), принцип минимальных привилегий",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>IAM</strong> (Identity and Access Management) — сервис управления доступом в облаке. В AWS основные сущности: <strong>Users</strong> (постоянные учётные записи), <strong>Groups</strong> (наборы пользователей), <strong>Roles</strong> (временные учётные данные для сервисов и федерации) и <strong>Policies</strong> — JSON-документы, описывающие разрешения.</p><p>Пример политики:</p><pre><code>{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [{\n    \"Effect\": \"Allow\",\n    \"Action\": \"s3:GetObject\",\n    \"Resource\": \"arn:aws:s3:::my-bucket/*\"\n  }]\n}</code></pre><p>Ключевой принцип — <strong>least privilege</strong>: давать ровно те права, которые нужны для задачи, не больше. Роли часто назначают EC2-инстансам или Lambda через <code>instance profile</code>, чтобы приложение получало временные ключи без хардкода секретов.</p><p>Аналоги: в GCP — <strong>IAM roles</strong> (primitive/predefined/custom) и <strong>Service Accounts</strong>; в Azure — <strong>Azure AD (Entra ID)</strong> с <strong>RBAC</strong> и Managed Identity.</p><ul><li>Managed policies — готовые от AWS, Customer managed — свои</li><li>MFA обязателен для root и привилегированных пользователей</li><li>Access Analyzer помогает находить избыточные права</li></ul><table><tr><th>AWS</th><th>GCP</th><th>Azure</th></tr><tr><td>IAM Role</td><td>Service Account</td><td>Managed Identity</td></tr></table>"
+  },
+  {
+   "title": "Вычисления: EC2/GCE/VM — типы, launch, lifecycle, user-data",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>EC2</strong> (Elastic Compute Cloud) — сервис виртуальных машин AWS. При запуске выбирается <strong>AMI</strong> (образ ОС), <strong>instance type</strong> (например <code>t3.micro</code>, <code>m5.large</code> — определяет CPU/RAM/сеть), сеть (VPC/subnet), security group и key pair для SSH.</p><p>Жизненный цикл инстанса: <code>pending → running → stopping → stopped → terminated</code>. Остановленный (<code>stopped</code>) инстанс не тарифицируется по CPU, но EBS-диск продолжает стоить денег; <code>terminated</code> — удаляется навсегда (если не защищён).</p><p><strong>User-data</strong> — скрипт, который выполняется при первом запуске (cloud-init), удобен для автоматической установки пакетов:</p><pre><code>#!/bin/bash\napt update -y\napt install -y nginx\nsystemctl enable nginx</code></pre><p>Типы инстансов делятся по назначению: <strong>general purpose</strong> (t3, m5), <strong>compute optimized</strong> (c5), <strong>memory optimized</strong> (r5), <strong>storage optimized</strong> (i3).</p><ul><li>GCP аналог: <strong>GCE</strong> (Compute Engine) с machine types (e2, n2, c2)</li><li>Azure аналог: <strong>Virtual Machines</strong> (серии B, D, F)</li><li>Автоскейлинг: Auto Scaling Group (AWS), Managed Instance Group (GCP), VM Scale Set (Azure)</li></ul>"
+  },
+  {
+   "title": "Сети: VPC, subnets (public/private), route tables, Internet GW, NAT GW",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>VPC</strong> (Virtual Private Cloud) — изолированная виртуальная сеть внутри облака со своим диапазоном IP (например <code>10.0.0.0/16</code>). Внутри VPC создаются <strong>subnets</strong> — сегменты сети, привязанные к конкретной availability zone.</p><p><strong>Public subnet</strong> имеет маршрут к <strong>Internet Gateway (IGW)</strong> в таблице маршрутов и обычно содержит балансировщики или bastion-хосты. <strong>Private subnet</strong> не имеет прямого маршрута в интернет — исходящий трафик идёт через <strong>NAT Gateway</strong>, размещённый в public subnet, что позволяет серверам обновляться, но не быть доступными снаружи.</p><p>Пример маршрута для public subnet:</p><pre><code>Destination      Target\n10.0.0.0/16      local\n0.0.0.0/0        igw-0123456789</code></pre><p><strong>Route table</strong> определяет, куда пойдёт трафик из subnet; каждая subnet ассоциирована ровно с одной route table.</p><ul><li>Security Group — stateful firewall на уровне инстанса</li><li>NACL (Network ACL) — stateless firewall на уровне subnet</li><li>GCP аналог: VPC с subnets и Cloud NAT; Azure: VNet с NSG и NAT Gateway</li></ul>"
+  },
+  {
+   "title": "Хранение объектов: S3/GCS/Blob — buckets, ACL, versioning, lifecycle",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>S3</strong> (Simple Storage Service) — объектное хранилище AWS для файлов любого размера. Данные хранятся в <strong>buckets</strong> (уникальное имя в рамках региона/аккаунта), каждый объект адресуется ключом (путём).</p><pre><code>aws s3 cp file.txt s3://my-bucket/path/file.txt\naws s3 ls s3://my-bucket/</code></pre><p><strong>Доступ</strong> регулируется через <strong>bucket policy</strong> (JSON, аналогично IAM policy) и, реже, устаревшими <strong>ACL</strong>. Рекомендуется блокировать публичный доступ по умолчанию.</p><p><strong>Versioning</strong> сохраняет все версии объекта при перезаписи — защита от случайного удаления/изменения. <strong>Lifecycle rules</strong> автоматически переносят старые объекты в дешёвые классы хранения:</p><table><tr><th>Класс</th><th>Назначение</th></tr><tr><td>Standard</td><td>частый доступ</td></tr><tr><td>Standard-IA</td><td>редкий доступ</td></tr><tr><td>Glacier</td><td>архив, долгое восстановление</td></tr></table><ul><li>GCS (Google Cloud Storage) — классы Standard/Nearline/Coldline/Archive</li><li>Azure Blob Storage — Hot/Cool/Archive tiers</li><li>Шифрование: SSE-S3, SSE-KMS, SSE-C</li></ul>"
+  },
+  {
+   "title": "Managed DB: RDS/Cloud SQL — setup, backup, read replica, failover",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>RDS</strong> (Relational Database Service) — управляемая СУБД AWS (MySQL, PostgreSQL, MariaDB, SQL Server, Oracle). AWS берёт на себя патчинг ОС, установку движка, резервное копирование и мониторинг, освобождая инженера от рутины.</p><p>При создании инстанса указываются: движок и версия, класс инстанса (например <code>db.t3.medium</code>), объём хранилища, <strong>Multi-AZ</strong> (синхронная реплика в другой зоне для высокой доступности).</p><p><strong>Backup</strong>: автоматические снапшоты по расписанию (retention до 35 дней) + point-in-time recovery через транзакционные логи. Ручные снапшоты хранятся бессрочно.</p><p><strong>Read replica</strong> — асинхронная копия для масштабирования чтения, может быть создана в другом регионе:</p><pre><code>aws rds create-db-instance-read-replica \\\n  --db-instance-identifier mydb-replica \\\n  --source-db-instance-identifier mydb</code></pre><p>При <strong>Multi-AZ failover</strong> AWS автоматически переключает DNS-имя на standby-реплику в течение 1-2 минут при сбое основного инстанса.</p><ul><li>GCP аналог: Cloud SQL с High Availability и read replicas</li><li>Azure аналог: Azure Database for PostgreSQL/MySQL</li></ul>"
+  },
+  {
+   "title": "Load Balancer: ALB/NLB, target groups, health checks, listeners",
+   "level": "🟢 Junior",
+   "explanation": "<p>AWS предлагает несколько типов балансировщиков нагрузки (ELB). <strong>ALB</strong> (Application Load Balancer) работает на уровне 7 (HTTP/HTTPS), понимает пути и хосты, поддерживает path-based и host-based routing. <strong>NLB</strong> (Network Load Balancer) работает на уровне 4 (TCP/UDP), обеспечивает экстремальную производительность и статический IP.</p><p><strong>Listener</strong> — правило, слушающее конкретный порт/протокол и решающее, куда направить трафик:</p><pre><code>Listener :443 (HTTPS)\n  Rule: path=/api/* -> target-group-api\n  Rule: path=/*     -> target-group-web</code></pre><p><strong>Target group</strong> — набор backend-целей (EC2, IP, Lambda), к которым применяется <strong>health check</strong> — периодический запрос (например GET /health), проверяющий, отвечает ли инстанс. Если проверка не проходит N раз — цель помечается unhealthy и трафик перестаёт на неё идти.</p><ul><li>ALB поддерживает sticky sessions, WebSocket, HTTP/2</li><li>GCP аналог: Cloud Load Balancing (HTTP(S) LB, Network LB)</li><li>Azure аналог: Application Gateway (L7), Azure Load Balancer (L4)</li></ul>"
+  },
+  {
+   "title": "Container: ECS/GKE/AKS — managed Kubernetes, node pools",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>ECS</strong> (Elastic Container Service) — собственный оркестратор контейнеров AWS, не Kubernetes, но простой и глубоко интегрированный с IAM/ALB/CloudWatch. Может работать в двух режимах: <strong>EC2 launch type</strong> (свои ноды) или <strong>Fargate</strong> (serverless, без управления нодами).</p><p>Для Kubernetes AWS предлагает <strong>EKS</strong> (Elastic Kubernetes Service) — управляемый control plane, при этом worker-ноды администрируются пользователем через <strong>node group</strong> (managed или self-managed) либо тоже через Fargate.</p><pre><code>eksctl create cluster --name prod --nodes 3 --node-type t3.medium</code></pre><p><strong>Node pool</strong> (в GKE) или <strong>node group</strong> (в EKS) — логическая группа нод с одинаковой конфигурацией (тип инстанса, автоскейлинг, taints/labels), позволяющая, например, выделить отдельный пул для GPU-нагрузок.</p><ul><li><strong>GKE</strong> (Google Kubernetes Engine) — самый зрелый managed K8s, есть Autopilot режим без управления нодами</li><li><strong>AKS</strong> (Azure Kubernetes Service) — бесплатный control plane, интеграция с Azure AD</li><li>Все три поддерживают autoscaling нод и подов (Cluster Autoscaler, HPA)</li></ul>"
+  },
+  {
+   "title": "Serverless: Lambda/Functions — triggers, layers, concurrency, cold start",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>AWS Lambda</strong> — сервис выполнения кода без управления серверами: платите только за время выполнения (в мс) и число вызовов. Функция запускается по <strong>триггеру</strong>: HTTP-запрос через API Gateway, событие S3 (загрузка файла), сообщение SQS/SNS, расписание EventBridge и т.д.</p><pre><code>def handler(event, context):\n    print(event)\n    return {\"statusCode\": 200, \"body\": \"OK\"}</code></pre><p><strong>Layers</strong> — общие библиотеки/зависимости, подключаемые к нескольким функциям без дублирования кода в каждом deployment package.</p><p><strong>Concurrency</strong>: по умолчанию Lambda масштабируется автоматически, обрабатывая параллельные вызовы отдельными экземплярами; можно задать <strong>reserved concurrency</strong> (лимит) или <strong>provisioned concurrency</strong> (прогретые инстансы, устраняющие cold start).</p><p><strong>Cold start</strong> — задержка первого вызова, когда Lambda поднимает новое окружение (особенно заметна для Java/.NET, меньше для Node.js/Python). Provisioned concurrency решает эту проблему за дополнительную плату.</p><ul><li>GCP аналог: Cloud Functions / Cloud Run</li><li>Azure аналог: Azure Functions</li><li>Лимит времени выполнения Lambda: 15 минут</li></ul>"
+  },
+  {
+   "title": "DNS: Route53/Cloud DNS — routing policies (latency, weighted, failover)",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Route53</strong> — управляемый DNS-сервис AWS, также выполняющий функции регистратора доменов и health-мониторинга. Помимо стандартных записей (A, CNAME, MX), поддерживает продвинутые <strong>routing policies</strong>.</p><table><tr><th>Policy</th><th>Назначение</th></tr><tr><td>Simple</td><td>один ресурс, без логики</td></tr><tr><td>Weighted</td><td>распределение трафика по весам (A/B тесты, canary)</td></tr><tr><td>Latency</td><td>маршрутизация в регион с наименьшей задержкой для пользователя</td></tr><tr><td>Failover</td><td>primary/secondary — переключение при недоступности primary</td></tr><tr><td>Geolocation</td><td>маршрутизация по географии клиента</td></tr></table><p>Пример: для <strong>failover</strong> настраивается health check на primary endpoint; если он падает, Route53 автоматически начинает резолвить домен на secondary.</p><pre><code>aws route53 create-health-check \\\n  --caller-reference 1 \\\n  --health-check-config Type=HTTPS,ResourcePath=/health,FullyQualifiedDomainName=api.example.com</code></pre><ul><li><strong>Alias record</strong> — специальная запись Route53 для указания на AWS-ресурсы (ALB, CloudFront) без затрат на запрос</li><li>GCP аналог: Cloud DNS; Azure: Azure DNS + Traffic Manager для weighted/latency-подобной логики</li></ul>"
+  },
+  {
+   "title": "CDN: CloudFront/Cloud CDN — cache behaviors, OAC, invalidation",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>CloudFront</strong> — CDN-сервис AWS, кеширующий контент в edge-локациях по всему миру, снижая латентность и нагрузку на origin (S3, ALB, любой HTTP-сервер).</p><p><strong>Cache behavior</strong> — правило, определяющее, как обрабатывать запросы по пути (path pattern): TTL, разрешённые методы, forward headers/cookies/query strings:</p><pre><code>Path: /static/*  -> Origin: S3, TTL: 86400\nPath: /api/*     -> Origin: ALB, TTL: 0 (no cache)</code></pre><p><strong>OAC</strong> (Origin Access Control) — современный механизм, заменивший OAI, позволяющий CloudFront обращаться к приватному S3-бакету, оставляя прямой доступ к бакету закрытым — весь трафик идёт только через CDN.</p><p><strong>Invalidation</strong> — принудительное удаление объектов из edge-кешей до истечения TTL, нужно после деплоя новой версии статики:</p><pre><code>aws cloudfront create-invalidation --distribution-id ABC123 --paths \"/*\"</code></pre><ul><li>Invalidation тарифицируется после первых 1000 путей/месяц</li><li>GCP аналог: Cloud CDN; Azure: Azure CDN / Front Door</li><li>Signed URLs/Cookies — ограничение доступа к приватному контенту</li></ul>"
+  },
+  {
+   "title": "Secrets: AWS Secrets Manager / GCP Secret Manager + rotation",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Secrets Manager</strong> — сервис AWS для безопасного хранения секретов (пароли БД, API-ключи, токены) с шифрованием через KMS. В отличие от Parameter Store (SSM), нативно поддерживает <strong>автоматическую ротацию</strong>.</p><pre><code>aws secretsmanager get-secret-value --secret-id prod/db/password</code></pre><p>Приложение получает секрет через SDK или API вместо хардкода в коде/конфиге, что снижает риск утечки при компрометации репозитория.</p><p><strong>Rotation</strong> настраивается через Lambda-функцию, которая по расписанию (например каждые 30 дней) генерирует новый пароль, обновляет его в самой БД (RDS) и в Secrets Manager, используя схему <em>staging labels</em> (AWSCURRENT/AWSPENDING) для безопасного перехода без даунтайма.</p><ul><li>Доступ к секретам контролируется через IAM policy — тот же принцип минимальных привилегий</li><li>Интеграция с ECS/EKS: секрет монтируется как переменная окружения при старте контейнера</li><li>GCP аналог: Secret Manager (ротация настраивается вручную через Cloud Scheduler + Function)</li><li>Azure аналог: Key Vault с auto-rotation policies</li></ul>"
+  },
+  {
+   "title": "Logging: CloudWatch Logs / Cloud Logging — log groups, metric filters",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>CloudWatch Logs</strong> — централизованный сервис логирования AWS. Логи организованы в <strong>log groups</strong> (обычно по сервису/приложению), внутри которых — <strong>log streams</strong> (по инстансу/контейнеру/задаче).</p><pre><code>aws logs create-log-group --log-group-name /ecs/my-app\naws logs tail /ecs/my-app --follow</code></pre><p>Агенты и SDK (CloudWatch Agent, Lambda runtime, ECS awslogs driver) автоматически пишут логи в соответствующую группу. Настраивается <strong>retention period</strong> (по умолчанию бесконечно — нужно ограничить вручную для контроля затрат).</p><p><strong>Metric filter</strong> превращает текстовые логи в числовые метрики: например, счётчик строк с &quot;ERROR&quot; превращается в метрику CloudWatch, на которую можно навесить алярм:</p><pre><code>aws logs put-metric-filter \\\n  --log-group-name /ecs/my-app \\\n  --filter-name ErrorCount \\\n  --filter-pattern \"ERROR\" \\\n  --metric-transformations metricName=AppErrors,metricNamespace=MyApp,metricValue=1</code></pre><ul><li>CloudWatch Alarms реагируют на метрики (email, SNS, autoscaling actions)</li><li>GCP аналог: Cloud Logging с log-based metrics; Azure: Log Analytics/Monitor</li></ul>"
+  },
+  {
+   "title": "Cost optimization: Reserved/Spot/Preemptible, Savings Plans, rightsizing",
+   "level": "🟡 Middle",
+   "explanation": "<p>Облачные затраты оптимизируют несколькими стратегиями закупки вычислений. <strong>On-Demand</strong> — почасовая оплата без обязательств, самая дорогая модель. <strong>Reserved Instances (RI)</strong> — предоплата на 1-3 года за скидку до 72%, подходит для стабильной базовой нагрузки.</p><p><strong>Spot Instances</strong> — используют свободные мощности AWS со скидкой до 90%, но могут быть прерваны с уведомлением за 2 минуты — идеальны для batch-задач, CI-раннеров, fault-tolerant воркеров, но не для stateful сервисов.</p><pre><code>aws ec2 request-spot-instances --instance-count 1 \\\n  --launch-specification file://spec.json</code></pre><p><strong>Savings Plans</strong> — более гибкая альтернатива RI: обязательство по сумме расходов ($/час) на 1-3 года, применяется автоматически к любым подходящим ресурсам (EC2, Fargate, Lambda), а не к конкретному типу инстанса.</p><p><strong>Rightsizing</strong> — регулярный анализ фактического использования (через AWS Compute Optimizer) и подбор меньшего/большего типа инстанса под реальную нагрузку — частая причина overspend — избыточно крупные инстансы &quot;на всякий случай&quot;.</p><ul><li>GCP аналог Spot: Preemptible/Spot VMs; committed use discounts вместо RI</li><li>Azure: Reserved VM Instances, Spot VMs</li></ul>"
+  },
+  {
+   "title": "Advanced: VPC Peering, Transit Gateway, PrivateLink, Direct Connect/Interconnect",
+   "level": "🔴 Senior",
+   "explanation": "<p>Для сложных сетевых топологий AWS предлагает несколько механизмов соединения VPC и on-premise инфраструктуры. <strong>VPC Peering</strong> — прямое соединение двух VPC (в одном или разных аккаунтах/регионах), трафик идёт по приватной сети AWS, но нет транзитивности — если A связан с B и B с C, A не видит C напрямую.</p><p><strong>Transit Gateway</strong> решает проблему транзитивности — центральный хаб, к которому подключаются десятки VPC и VPN-соединений, образуя hub-and-spoke топологию вместо N×N mesh peering-соединений.</p><pre><code>aws ec2 create-transit-gateway-vpc-attachment \\\n  --transit-gateway-id tgw-123 --vpc-id vpc-456 --subnet-ids subnet-789</code></pre><p><strong>PrivateLink</strong> позволяет обращаться к сервису (своему или сервис-провайдера, например SaaS) через приватный endpoint внутри VPC, без прохождения через интернет или peering — важно для compliance и снижения площади атаки.</p><p><strong>Direct Connect</strong> — выделенное физическое соединение между дата-центром компании и AWS (в отличие от VPN через интернет), даёт предсказуемую latency и bandwidth для гибридных сценариев.</p><ul><li>GCP аналоги: VPC Peering, Cloud Interconnect, Private Service Connect</li><li>Azure аналоги: VNet Peering, ExpressRoute, Private Link</li></ul>"
+  }
+ ],
+ "quiz": [
+  {
+   "q": "Какой принцип IAM рекомендует давать пользователю только те права, которые необходимы для выполнения задачи?",
+   "options": ["Zero Trust", "Least Privilege", "Defense in Depth", "Separation of Concerns"],
+   "answer": 1,
+   "explain": "Принцип наименьших привилегий (Least Privilege) — базовый принцип IAM: разрешать только необходимый минимум действий."
+  },
+  {
+   "q": "В каком состоянии жизненного цикла EC2 инстанс не тарифицируется за вычисления, но диск EBS продолжает стоить денег?",
+   "options": ["running", "pending", "stopped", "terminated"],
+   "answer": 2,
+   "explain": "В состоянии stopped вычислительные ресурсы освобождаются и не тарифицируются, но привязанный EBS-том сохраняется и оплачивается отдельно."
+  },
+  {
+   "q": "Через что серверы в приватном subnet получают доступ к интернету для исходящих запросов (например, обновлений пакетов)?",
+   "options": ["Internet Gateway", "NAT Gateway", "VPC Peering", "Route Table напрямую"],
+   "answer": 1,
+   "explain": "NAT Gateway размещается в public subnet и позволяет ресурсам в private subnet инициировать исходящие соединения без прямой доступности снаружи."
+  },
+  {
+   "q": "Какая функция S3 сохраняет все предыдущие версии объекта при его перезаписи или удалении?",
+   "options": ["Lifecycle policy", "Versioning", "Replication", "ACL"],
+   "answer": 1,
+   "explain": "Versioning включает хранение всех версий объекта, что защищает от случайной перезаписи или удаления данных."
+  },
+  {
+   "q": "Что происходит при Multi-AZ failover в RDS?",
+   "options": [
+    "База данных полностью останавливается до ручного восстановления",
+    "DNS-имя автоматически переключается на standby-реплику в другой зоне",
+    "Создаётся новый read replica взамен упавшего инстанса",
+    "Данные автоматически экспортируются в S3"
+   ],
+   "answer": 1,
+   "explain": "При Multi-AZ failover AWS автоматически переключает конечную точку (DNS CNAME) на синхронную standby-реплику, обычно за 1-2 минуты."
+  },
+  {
+   "q": "На каком уровне модели OSI работает Application Load Balancer (ALB), в отличие от Network Load Balancer?",
+   "options": ["Уровень 3 (сеть)", "Уровень 4 (транспорт)", "Уровень 7 (приложение)", "Уровень 2 (канальный)"],
+   "answer": 2,
+   "explain": "ALB работает на уровне 7 (HTTP/HTTPS) и понимает пути и хосты запроса, тогда как NLB работает на уровне 4 (TCP/UDP)."
+  },
+  {
+   "q": "Чем принципиально отличается AWS Fargate от EC2 launch type в ECS?",
+   "options": [
+    "Fargate поддерживает только Windows-контейнеры",
+    "Fargate — serverless режим, не требующий управления нодами",
+    "Fargate работает только с Kubernetes",
+    "Fargate дороже во всех случаях без исключений"
+   ],
+   "answer": 1,
+   "explain": "Fargate — это serverless launch type для ECS/EKS, где AWS сам управляет инфраструктурой нод, в отличие от EC2 launch type, где ноды администрирует пользователь."
+  },
+  {
+   "q": "Что вызывает cold start в AWS Lambda?",
+   "options": [
+    "Превышение лимита памяти функции",
+    "Инициализация нового окружения выполнения при первом или холодном вызове",
+    "Истечение TTL кеша CloudFront",
+    "Ротация секретов в Secrets Manager"
+   ],
+   "answer": 1,
+   "explain": "Cold start — задержка, возникающая когда Lambda создаёт новое runtime-окружение для обработки запроса, вместо переиспользования уже прогретого."
+  },
+  {
+   "q": "Какая routing policy Route53 подходит для автоматического переключения трафика на резервный ресурс при падении основного?",
+   "options": ["Weighted", "Latency", "Failover", "Geolocation"],
+   "answer": 2,
+   "explain": "Failover routing policy использует health checks для отслеживания состояния primary-ресурса и переключает трафик на secondary при его недоступности."
+  },
+  {
+   "q": "Что делает Origin Access Control (OAC) в CloudFront?",
+   "options": [
+    "Ускоряет invalidation кеша",
+    "Позволяет CloudFront обращаться к приватному S3-бакету, закрывая прямой публичный доступ к нему",
+    "Автоматически сжимает статические файлы",
+    "Настраивает weighted routing между регионами"
+   ],
+   "answer": 1,
+   "explain": "OAC позволяет CloudFront авторизованно обращаться к приватному S3 origin, при этом сам бакет остаётся закрытым для прямого доступа из интернета."
+  },
+  {
+   "q": "Чем Secrets Manager принципиально отличается от простого хранения переменных окружения в конфиге?",
+   "options": [
+    "Secrets Manager хранит данные в открытом виде для скорости доступа",
+    "Secrets Manager поддерживает встроенную автоматическую ротацию секретов через Lambda",
+    "Secrets Manager недоступен через IAM policies",
+    "Secrets Manager работает только с базами данных MySQL"
+   ],
+   "answer": 1,
+   "explain": "Ключевое преимущество Secrets Manager — встроенная поддержка автоматической ротации секретов (например, паролей БД) по расписанию через Lambda-функцию."
+  },
+  {
+   "q": "Какая модель закупки вычислений в AWS даёт наибольшую скидку, но может быть прервана AWS с уведомлением за 2 минуты?",
+   "options": ["On-Demand", "Reserved Instances", "Savings Plans", "Spot Instances"],
+   "answer": 3,
+   "explain": "Spot Instances используют невостребованные мощности AWS со скидкой до 90%, но AWS может забрать их обратно с коротким уведомлением, что подходит только для fault-tolerant нагрузок."
+  }
+ ]
+}

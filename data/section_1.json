@@ -1,0 +1,210 @@
+{
+  "phase": "Phase 1 — Linux + Bash + Git",
+  "section": "🌐 Networking Basics",
+  "topics": [
+    {
+      "title": "Модель OSI: 7 уровней и что происходит на каждом",
+      "level": "🟢 Junior",
+      "explanation": "<p>Модель OSI (Open Systems Interconnection) описывает передачу данных по сети как стек из 7 уровней. Каждый уровень решает свою задачу и общается только с соседними уровнями.</p><ul><li><strong>7. Прикладной (Application)</strong> — HTTP, DNS, SSH, FTP — то, с чем работает приложение</li><li><strong>6. Представления (Presentation)</strong> — кодировка, шифрование (TLS), сжатие</li><li><strong>5. Сеансовый (Session)</strong> — установка и поддержание сессии</li><li><strong>4. Транспортный (Transport)</strong> — TCP/UDP, порты, надёжность доставки</li><li><strong>3. Сетевой (Network)</strong> — IP-адресация, маршрутизация (роутеры)</li><li><strong>2. Канальный (Data Link)</strong> — MAC-адреса, коммутаторы, Ethernet-фреймы</li><li><strong>1. Физический (Physical)</strong> — кабели, сигналы, биты</li></ul><p>На практике DevOps чаще всего работает с уровнями 3-4-7: диагностируя проблему, полезно думать «на каком уровне сломалось». Например, <code>ping</code> проверяет уровень 3 (IP), а <code>curl</code> — уровень 7 (HTTP).</p><p>Пример диагностики по уровням:</p><pre>ping 8.8.8.8          # L3 — доступен ли хост по IP\nss -tulpn             # L4 — слушает ли порт\ncurl -v http://host   # L7 — отвечает ли приложение</pre><p>Если <code>ping</code> работает, а <code>curl</code> — нет, проблема на уровне приложения или транспорта, а не в сети как таковой.</p>"
+    },
+    {
+      "title": "TCP vs UDP: разница, 3-way handshake, use cases",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>TCP</strong> (Transmission Control Protocol) — надёжный протокол с установлением соединения. Перед передачей данных выполняется <strong>3-way handshake</strong>:</p><ul><li>Клиент отправляет <code>SYN</code></li><li>Сервер отвечает <code>SYN-ACK</code></li><li>Клиент отправляет <code>ACK</code></li></ul><p>После этого соединение установлено, и TCP гарантирует доставку пакетов в правильном порядке, с повторной отправкой при потере. Используется там, где важна целостность данных: HTTP/HTTPS, SSH, базы данных, передача файлов.</p><p><strong>UDP</strong> (User Datagram Protocol) — «выстрелил и забыл»: пакеты отправляются без установления соединения и без гарантии доставки. Зато он быстрее и легче TCP. Используется для DNS-запросов, потокового видео, VoIP, игр, где важна скорость, а не 100% доставка.</p><table><tr><th>Критерий</th><th>TCP</th><th>UDP</th></tr><tr><td>Соединение</td><td>Есть (handshake)</td><td>Нет</td></tr><tr><td>Надёжность</td><td>Гарантирована</td><td>Не гарантирована</td></tr><tr><td>Скорость</td><td>Ниже</td><td>Выше</td></tr><tr><td>Примеры</td><td>HTTP, SSH, DB</td><td>DNS, VoIP, DHCP</td></tr></table><p>Посмотреть открытые TCP/UDP порты:</p><pre>ss -tulpn</pre><p>Захватить handshake в трафике:</p><pre>tcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0'</pre>"
+    },
+    {
+      "title": "IP-адресация: IPv4, CIDR нотация (/24, /16), подсети",
+      "level": "🟢 Junior",
+      "explanation": "<p>IPv4-адрес состоит из 32 бит, записанных как 4 числа по 8 бит: <code>192.168.1.10</code>. Чтобы определить, какие адреса относятся к одной подсети, используется <strong>CIDR-нотация</strong> — число после слэша показывает, сколько бит отведено под сетевую часть адреса.</p><ul><li><code>/24</code> — маска <code>255.255.255.0</code>, 256 адресов (254 доступных хостам)</li><li><code>/16</code> — маска <code>255.255.0.0</code>, 65536 адресов</li><li><code>/32</code> — один конкретный адрес</li></ul><p>Пример: <code>192.168.1.0/24</code> означает сеть от <code>192.168.1.0</code> до <code>192.168.1.255</code>, где <code>.0</code> — адрес сети, а <code>.255</code> — broadcast.</p><p>Приватные диапазоны (RFC 1918), которые не роутятся в интернете:</p><pre>10.0.0.0/8\n172.16.0.0/12\n192.168.0.0/16</pre><p>Проверить, принадлежит ли IP подсети, можно вручную или через <code>ipcalc</code>:</p><pre>ipcalc 192.168.1.10/24\n# Address:   192.168.1.10\n# Netmask:   255.255.255.0\n# Network:   192.168.1.0/24\n# HostMin:   192.168.1.1\n# HostMax:   192.168.1.254</pre><p>В облаке (AWS VPC, GCP) подсети задаются той же нотацией: <code>10.0.1.0/24</code> для приватной подсети, <code>10.0.0.0/24</code> для публичной — и от размера маски напрямую зависит, сколько инстансов вы сможете туда разместить.</p>"
+    },
+    {
+      "title": "Утилиты: ip addr, ip route, ss -tulpn, ping, traceroute",
+      "level": "🟢 Junior",
+      "explanation": "<p>Базовый набор команд для диагностики сети на Linux-хосте.</p><p><strong>ip addr</strong> — показать сетевые интерфейсы и их IP-адреса:</p><pre>ip addr show\nip a</pre><p><strong>ip route</strong> — показать таблицу маршрутизации, включая default gateway:</p><pre>ip route show\nip r</pre><p><strong>ss -tulpn</strong> — заменил устаревший <code>netstat</code>, показывает открытые TCP/UDP порты и процессы, которые их слушают:</p><ul><li><code>-t</code> — TCP</li><li><code>-u</code> — UDP</li><li><code>-l</code> — только слушающие сокеты</li><li><code>-p</code> — показать PID/имя процесса</li><li><code>-n</code> — не резолвить имена (быстрее)</li></ul><pre>ss -tulpn | grep :80</pre><p><strong>ping</strong> — проверка доступности хоста через ICMP echo-request:</p><pre>ping -c 4 8.8.8.8</pre><p><strong>traceroute</strong> (или <code>mtr</code>) — показывает маршрут пакета через все промежуточные роутеры, помогает найти, на каком «хопе» рвётся связь:</p><pre>traceroute google.com\nmtr google.com   # непрерывный traceroute с статистикой</pre><p>Типичный сценарий: сервис недоступен → <code>ip addr</code> проверить, что интерфейс поднят → <code>ping</code> gateway → <code>traceroute</code> до внешнего хоста → <code>ss -tulpn</code> проверить, слушает ли приложение нужный порт.</p>"
+    },
+    {
+      "title": "DNS: dig, nslookup, host — A, AAAA, MX, CNAME, PTR, TXT записи",
+      "level": "🟢 Junior",
+      "explanation": "<p>DNS переводит доменные имена в IP-адреса. Основные типы записей:</p><ul><li><strong>A</strong> — домен → IPv4-адрес</li><li><strong>AAAA</strong> — домен → IPv6-адрес</li><li><strong>CNAME</strong> — алиас, домен → другой домен</li><li><strong>MX</strong> — почтовый сервер для домена</li><li><strong>PTR</strong> — обратная запись, IP → домен (reverse DNS)</li><li><strong>TXT</strong> — произвольный текст, часто для SPF/DKIM, верификации домена</li></ul><p><strong>dig</strong> — самый гибкий инструмент диагностики DNS:</p><pre>dig example.com          # A-запись\ndig example.com MX       # почтовые сервера\ndig example.com TXT\ndig -x 8.8.8.8           # обратный запрос (PTR)\ndig @8.8.8.8 example.com # спросить конкретный DNS-сервер</pre><p>В выводе <code>dig</code> важны секции ANSWER (результат) и время выполнения — если запрос долгий, возможна проблема с DNS-сервером.</p><p><strong>nslookup</strong> — более простой, интерактивный аналог:</p><pre>nslookup example.com</pre><p><strong>host</strong> — минималистичный вывод, удобен в скриптах:</p><pre>host example.com\nhost -t MX example.com</pre><p>Типичная задача DevOps: убедиться, что после деплоя A-запись указывает на новый IP, и что TTL записи не слишком большой, иначе изменения будут применяться медленно из-за кеширования.</p>"
+    },
+    {
+      "title": "HTTP/HTTPS: методы (GET POST PUT DELETE), коды (2xx 3xx 4xx 5xx)",
+      "level": "🟢 Junior",
+      "explanation": "<p>HTTP — протокол прикладного уровня для обмена данными между клиентом и сервером. HTTPS — тот же HTTP, но поверх TLS-шифрования.</p><p><strong>Основные методы:</strong></p><ul><li><code>GET</code> — получить ресурс (не должен менять состояние)</li><li><code>POST</code> — создать ресурс / отправить данные</li><li><code>PUT</code> — полностью заменить ресурс (идемпотентно)</li><li><code>PATCH</code> — частично обновить ресурс</li><li><code>DELETE</code> — удалить ресурс</li></ul><p><strong>Коды ответа</strong> сгруппированы по первой цифре:</p><table><tr><th>Класс</th><th>Значение</th><th>Примеры</th></tr><tr><td>2xx</td><td>Успех</td><td>200 OK, 201 Created, 204 No Content</td></tr><tr><td>3xx</td><td>Редирект</td><td>301 Moved Permanently, 302 Found, 304 Not Modified</td></tr><tr><td>4xx</td><td>Ошибка клиента</td><td>400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found</td></tr><tr><td>5xx</td><td>Ошибка сервера</td><td>500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout</td></tr></table><p>Для DevOps коды 5xx особенно важны — 502/504 часто означают проблему с backend или reverse proxy (например, nginx не может дотянуться до upstream), а не с самим клиентом.</p><p>Проверка кода ответа из терминала:</p><pre>curl -o /dev/null -s -w \"%{http_code}\\n\" https://example.com</pre>"
+    },
+    {
+      "title": "curl: запросы, заголовки (-H), методы (-X), body (-d), -v для дебага",
+      "level": "🟢 Junior",
+      "explanation": "<p><code>curl</code> — универсальный инструмент для отправки HTTP-запросов из терминала, незаменим при отладке API и веб-сервисов.</p><p><strong>Базовый GET-запрос:</strong></p><pre>curl https://api.example.com/users</pre><p><strong>Указать метод</strong> через <code>-X</code>:</p><pre>curl -X POST https://api.example.com/users</pre><p><strong>Заголовки</strong> через <code>-H</code> (можно несколько):</p><pre>curl -H \"Authorization: Bearer TOKEN\" \\\n     -H \"Content-Type: application/json\" \\\n     https://api.example.com/users</pre><p><strong>Тело запроса</strong> через <code>-d</code> (автоматически меняет метод на POST):</p><pre>curl -X POST -d '{\"name\":\"Ivan\"}' \\\n     -H \"Content-Type: application/json\" \\\n     https://api.example.com/users</pre><p><strong>Отладка</strong> через <code>-v</code> (verbose) — показывает весь handshake, заголовки запроса и ответа:</p><pre>curl -v https://example.com</pre><p>Полезные дополнительные флаги:</p><ul><li><code>-I</code> — только заголовки ответа (HEAD-запрос)</li><li><code>-o file</code> — сохранить ответ в файл</li><li><code>-L</code> — следовать редиректам</li><li><code>-k</code> — игнорировать ошибки TLS-сертификата (для отладки)</li><li><code>-w \"%{http_code}\"</code> — вывести код ответа</li></ul><p>Пример проверки healthcheck-эндпоинта в CI/CD пайплайне:</p><pre>curl -sf http://localhost:8080/health || exit 1</pre>"
+    },
+    {
+      "title": "Firewall: iptables — таблицы, цепочки, правила (INPUT OUTPUT FORWARD)",
+      "level": "🟢 Junior",
+      "explanation": "<p><code>iptables</code> — классический инструмент управления firewall в Linux, работающий через netfilter. Правила организованы в <strong>таблицы</strong> и <strong>цепочки</strong>.</p><p>Основная таблица — <code>filter</code>, с тремя стандартными цепочками:</p><ul><li><strong>INPUT</strong> — трафик, входящий на сам хост</li><li><strong>OUTPUT</strong> — трафик, исходящий с хоста</li><li><strong>FORWARD</strong> — транзитный трафик через хост (например, если он роутер)</li></ul><p>Каждое правило описывает условие и действие (<strong>target</strong>): <code>ACCEPT</code>, <code>DROP</code>, <code>REJECT</code>.</p><p><strong>Примеры правил:</strong></p><pre># Разрешить входящий SSH\niptables -A INPUT -p tcp --dport 22 -j ACCEPT\n\n# Разрешить уже установленные соединения\niptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT\n\n# Разрешить loopback\niptables -A INPUT -i lo -j ACCEPT\n\n# Всё остальное — блокировать\niptables -A INPUT -j DROP</pre><p><strong>Важно:</strong> порядок правил критичен — они применяются последовательно сверху вниз, первое совпадение решает судьбу пакета.</p><p>Посмотреть текущие правила:</p><pre>iptables -L -n -v</pre><p>Сохранить правила после reboot (Debian/Ubuntu):</p><pre>iptables-save > /etc/iptables/rules.v4</pre><p>Частая ошибка новичков — добавить <code>DROP</code> в конец, забыв разрешающее правило для SSH, и потерять доступ к серверу. Всегда тестируйте правила через консоль провайдера, а не только через SSH-сессию.</p>"
+    },
+    {
+      "title": "nftables: современная альтернатива iptables, синтаксис",
+      "level": "🟡 Middle",
+      "explanation": "<p><code>nftables</code> — преемник <code>iptables</code>, интегрированный в ядро Linux с 3.13, объединяющий функциональность iptables/ip6tables/arptables/ebtables в единый фреймворк с более чистым синтаксисом.</p><p>Ключевые отличия от iptables:</p><ul><li>Единая утилита <code>nft</code> для IPv4 и IPv6</li><li>Более быстрая обработка правил (использует bytecode вместо линейного перебора)</li><li>Собственные таблицы и цепочки создаются явно, без предопределённых</li><li>Поддержка множеств (sets) и словарей (maps) прямо в синтаксисе</li></ul><p><strong>Создание таблицы и базовой цепочки:</strong></p><pre>nft add table inet filter\nnft add chain inet filter input { type filter hook input priority 0 \\; policy drop \\; }</pre><p><strong>Добавление правил:</strong></p><pre>nft add rule inet filter input iif lo accept\nnft add rule inet filter input ct state established,related accept\nnft add rule inet filter input tcp dport 22 accept\nnft add rule inet filter input tcp dport { 80, 443 } accept</pre><p>Обратите внимание на set-нотацию <code>{ 80, 443 }</code> — это позволяет задавать несколько портов в одном правиле без дублирования, что в iptables требовало модуля <code>multiport</code>.</p><p><strong>Просмотр и сохранение правил:</strong></p><pre>nft list ruleset\nnft list ruleset > /etc/nftables.conf</pre><p>Многие современные дистрибутивы (Debian 10+, RHEL 8+) используют nftables как backend по умолчанию, даже когда пользователь вызывает команду <code>iptables</code> — это режим совместимости <code>iptables-nft</code>.</p>"
+    },
+    {
+      "title": "UFW: базовая настройка, allow/deny правила, статус",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>UFW</strong> (Uncomplicated Firewall) — упрощённая обёртка над iptables/nftables, стандартная в Ubuntu, ориентированная на простоту использования без глубокого знания синтаксиса netfilter.</p><p><strong>Включение и базовая настройка:</strong></p><pre>sudo ufw enable\nsudo ufw status verbose</pre><p><strong>Разрешить/запретить трафик:</strong></p><pre>sudo ufw allow 22/tcp          # разрешить SSH\nsudo ufw allow 80,443/tcp      # несколько портов\nsudo ufw allow from 192.168.1.0/24  # разрешить подсети\nsudo ufw deny 23               # запретить telnet\nsudo ufw allow 'Nginx Full'    # именованный профиль приложения</pre><p><strong>Удаление правила:</strong></p><pre>sudo ufw delete allow 80/tcp</pre><p><strong>Просмотр статуса с номерами правил (для удаления по номеру):</strong></p><pre>sudo ufw status numbered\nsudo ufw delete 3</pre><p><strong>Критически важный момент:</strong> перед включением <code>ufw enable</code> на удалённом сервере всегда сначала разрешите SSH, иначе вы потеряете доступ:</p><pre>sudo ufw allow OpenSSH\nsudo ufw enable</pre><p>UFW удобен для быстрой настройки single-host firewall на VPS, но для сложных сценариев (NAT, port forwarding, множество зон) обычно переходят на прямую работу с iptables/nftables.</p>"
+    },
+    {
+      "title": "SSL/TLS: что такое сертификат, цепочка CA, SNI, openssl s_client",
+      "level": "🟢 Junior",
+      "explanation": "<p>TLS (Transport Layer Security, преемник SSL) обеспечивает шифрование и аутентификацию соединения. <strong>Сертификат</strong> — это файл, подтверждающий, что публичный ключ принадлежит конкретному домену, подписанный доверенным <strong>CA</strong> (Certificate Authority).</p><p><strong>Цепочка доверия (chain of trust):</strong></p><ul><li><strong>Root CA</strong> — корневой сертификат, встроен в браузеры/ОС как доверенный</li><li><strong>Intermediate CA</strong> — промежуточный сертификат, подписан root CA</li><li><strong>Leaf certificate</strong> — сертификат вашего домена, подписан intermediate CA</li></ul><p>Сервер должен отдавать клиенту всю цепочку (leaf + intermediate), иначе браузер не сможет её выстроить до доверенного root.</p><p><strong>SNI</strong> (Server Name Indication) — расширение TLS, позволяющее клиенту указать имя домена ещё до установления шифрованного соединения. Это критично для хостинга нескольких HTTPS-сайтов на одном IP через один сервер (например, nginx с несколькими <code>server_name</code>).</p><p><strong>Диагностика через openssl:</strong></p><pre>openssl s_client -connect example.com:443 -servername example.com</pre><p>В выводе смотрим на:</p><ul><li><code>Certificate chain</code> — полная цепочка</li><li><code>Verify return code: 0 (ok)</code> — сертификат валиден</li><li><code>notAfter</code> в выводе <code>openssl x509 -noout -dates</code> — срок действия</li></ul><pre>echo | openssl s_client -connect example.com:443 2>/dev/null | \\\n  openssl x509 -noout -dates</pre><p>Это первое, что стоит проверить при жалобах на «сертификат недействителен» или ошибках в браузере.</p>"
+    },
+    {
+      "title": "Let's Encrypt + certbot: получение и автообновление сертификатов",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>Let's Encrypt</strong> — бесплатный, автоматизированный CA, выпускающий TLS-сертификаты через протокол ACME. Сертификаты действуют 90 дней, что стимулирует автоматизацию продления. <strong>Certbot</strong> — официальный клиент ACME для получения и обновления сертификатов.</p><p><strong>Установка certbot (Ubuntu/Debian):</strong></p><pre>sudo apt install certbot python3-certbot-nginx</pre><p><strong>Получение сертификата с автонастройкой nginx:</strong></p><pre>sudo certbot --nginx -d example.com -d www.example.com</pre><p>Certbot сам изменит конфиг nginx, добавив <code>ssl_certificate</code> и <code>ssl_certificate_key</code>, и настроит редирект с HTTP на HTTPS.</p><p><strong>Получение сертификата без автонастройки веб-сервера (standalone/webroot):</strong></p><pre>sudo certbot certonly --webroot -w /var/www/html -d example.com</pre><p><strong>Проверка автообновления</strong> — certbot устанавливает systemd timer, который запускается дважды в день и продлевает сертификаты, у которых остался менее 30 дней жизни:</p><pre>systemctl list-timers | grep certbot\nsudo certbot renew --dry-run   # тест без реального продления</pre><p>Список выпущенных сертификатов:</p><pre>sudo certbot certificates</pre><p>Важно: правило rate limit Let's Encrypt — не более 50 сертификатов на домен в неделю, поэтому во время отладки скриптов автоматизации стоит использовать staging-окружение (<code>--staging</code>), чтобы не упереться в лимит.</p>"
+    },
+    {
+      "title": "Анализ трафика: tcpdump -i eth0, фильтры, wireshark (GUI)",
+      "level": "🟡 Middle",
+      "explanation": "<p><code>tcpdump</code> — консольный анализатор пакетов, захватывающий трафик прямо на сетевом интерфейсе. Используется, когда прикладные логи не дают понять, что происходит на уровне сети.</p><p><strong>Базовый захват на интерфейсе:</strong></p><pre>sudo tcpdump -i eth0</pre><p><strong>Фильтры</strong> — самая важная часть, без них вывод превращается в шум:</p><pre># только трафик к/от конкретного хоста\ntcpdump -i eth0 host 192.168.1.10\n\n# только конкретный порт\ntcpdump -i eth0 port 443\n\n# комбинация условий\ntcpdump -i eth0 'host 192.168.1.10 and port 80'\n\n# только TCP SYN-пакеты (новые соединения)\ntcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0'</pre><p><strong>Полезные флаги:</strong></p><ul><li><code>-n</code> — не резолвить DNS-имена (быстрее, меньше шума)</li><li><code>-v</code>/<code>-vv</code> — больше деталей</li><li><code>-w file.pcap</code> — записать в файл для последующего анализа</li><li><code>-A</code> — показать содержимое пакета в ASCII (для HTTP-трафика)</li></ul><p>Сохранение для последующего разбора в GUI:</p><pre>sudo tcpdump -i eth0 -w capture.pcap port 443</pre><p><strong>Wireshark</strong> — графический аналог с гораздо более удобным анализом: разбор протоколов по слоям, follow TCP stream, статистика по соединениям, графики. Файлы <code>.pcap</code>, снятые через tcpdump на сервере без GUI, обычно скачивают и открывают в Wireshark локально.</p><p>Типичный кейс: приложение сообщает таймаут при обращении к внешнему API — tcpdump поможет увидеть, отправляется ли запрос вообще и приходит ли ответ, или проблема в самом приложении.</p>"
+    },
+    {
+      "title": "Nginx как reverse proxy: upstream, proxy_pass, location блоки",
+      "level": "🟡 Middle",
+      "explanation": "<p>Nginx часто используется как <strong>reverse proxy</strong> — принимает запросы от клиентов и перенаправляет их на backend-серверы (приложения), скрывая внутреннюю топологию и добавляя балансировку, кеширование, TLS-терминацию.</p><p><strong>Блок upstream</strong> определяет группу backend-серверов:</p><pre>upstream backend {\n    server 10.0.0.1:8080;\n    server 10.0.0.2:8080;\n    server 10.0.0.3:8080 backup;\n}</pre><p>По умолчанию nginx балансирует запросы между серверами round-robin; можно указать <code>weight=</code> для взвешенного распределения.</p><p><strong>proxy_pass</strong> в location блоке пробрасывает запрос к upstream:</p><pre>server {\n    listen 443 ssl;\n    server_name example.com;\n\n    location / {\n        proxy_pass http://backend;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n\n    location /api/ {\n        proxy_pass http://backend/api/;\n    }\n}</pre><p>Заголовки <code>X-Forwarded-*</code> критически важны — без них backend-приложение увидит IP nginx вместо реального клиента, что ломает логирование и rate limiting.</p><p><strong>Полезные директивы для production:</strong></p><ul><li><code>proxy_connect_timeout</code>, <code>proxy_read_timeout</code> — таймауты к backend</li><li><code>proxy_next_upstream</code> — на какие ошибки переключаться на следующий сервер</li></ul><p>Ошибка 502 Bad Gateway почти всегда означает, что nginx не смог получить корректный ответ от upstream — backend упал, недоступен или таймаут.</p>"
+    }
+  ],
+  "quiz": [
+    {
+      "q": "На каком уровне модели OSI работают MAC-адреса и коммутаторы?",
+      "options": [
+        "Транспортный (4)",
+        "Канальный (2)",
+        "Сетевой (3)",
+        "Прикладной (7)"
+      ],
+      "answer": 1,
+      "explain": "MAC-адреса и коммутаторы (switches) работают на канальном уровне (Data Link, уровень 2)."
+    },
+    {
+      "q": "Что происходит при 3-way handshake в TCP?",
+      "options": [
+        "Клиент и сервер обмениваются DNS-запросами",
+        "SYN → SYN-ACK → ACK устанавливают соединение",
+        "Сервер отправляет три пакета данных подряд",
+        "Происходит шифрование трафика через TLS"
+      ],
+      "answer": 1,
+      "explain": "3-way handshake — это последовательность SYN, SYN-ACK, ACK, устанавливающая TCP-соединение перед передачей данных."
+    },
+    {
+      "q": "Сколько адресов хостов доступно в подсети /24?",
+      "options": [
+        "62",
+        "126",
+        "254",
+        "510"
+      ],
+      "answer": 2,
+      "explain": "Подсеть /24 содержит 256 адресов, из которых 254 доступны хостам (первый — адрес сети, последний — broadcast)."
+    },
+    {
+      "q": "Какая команда покажет открытые TCP и UDP порты с указанием процесса, который их слушает?",
+      "options": [
+        "ip addr show",
+        "ping -c 4",
+        "ss -tulpn",
+        "traceroute"
+      ],
+      "answer": 2,
+      "explain": "ss -tulpn показывает слушающие TCP (-t) и UDP (-u) сокеты с PID процесса (-p), без резолва имён (-n)."
+    },
+    {
+      "q": "Какой тип DNS-записи используется для обратного преобразования IP в доменное имя?",
+      "options": [
+        "CNAME",
+        "MX",
+        "PTR",
+        "TXT"
+      ],
+      "answer": 2,
+      "explain": "PTR-запись (Pointer) используется для reverse DNS — преобразования IP-адреса обратно в доменное имя."
+    },
+    {
+      "q": "Какой HTTP-код обычно означает, что nginx не смог получить корректный ответ от backend-сервера?",
+      "options": [
+        "404 Not Found",
+        "403 Forbidden",
+        "502 Bad Gateway",
+        "301 Moved Permanently"
+      ],
+      "answer": 2,
+      "explain": "502 Bad Gateway означает, что reverse proxy (например, nginx) получил невалидный ответ от upstream-сервера или не смог до него дотянуться."
+    },
+    {
+      "q": "Какой флаг curl нужно использовать, чтобы увидеть весь процесс handshake и заголовки запроса/ответа?",
+      "options": [
+        "-s",
+        "-v",
+        "-o",
+        "-L"
+      ],
+      "answer": 1,
+      "explain": "Флаг -v (verbose) выводит детальную информацию о запросе, включая TLS handshake, заголовки запроса и ответа."
+    },
+    {
+      "q": "В iptables какая цепочка отвечает за транзитный трафик, проходящий через хост как через роутер?",
+      "options": [
+        "INPUT",
+        "OUTPUT",
+        "FORWARD",
+        "PREROUTING"
+      ],
+      "answer": 2,
+      "explain": "Цепочка FORWARD обрабатывает пакеты, которые не адресованы самому хосту, а транзитом проходят через него."
+    },
+    {
+      "q": "Чем nftables принципиально отличается от iptables в объявлении правил для нескольких портов?",
+      "options": [
+        "nftables не поддерживает несколько портов вообще",
+        "nftables использует set-нотацию { 80, 443 } в одном правиле",
+        "nftables требует отдельный модуль multiport",
+        "В nftables порты задаются только через переменные окружения"
+      ],
+      "answer": 1,
+      "explain": "nftables поддерживает нативную set-нотацию, например tcp dport { 80, 443 }, без необходимости в отдельном модуле, как в iptables."
+    },
+    {
+      "q": "Что необходимо сделать ПЕРЕД включением ufw enable на удалённом сервере, чтобы не потерять SSH-доступ?",
+      "options": [
+        "Перезагрузить сервер",
+        "Разрешить SSH правилом (например, ufw allow OpenSSH)",
+        "Отключить iptables",
+        "Удалить все текущие правила firewall"
+      ],
+      "answer": 1,
+      "explain": "Перед включением ufw обязательно нужно явно разрешить SSH, иначе после enable доступ по SSH будет заблокирован политикой deny по умолчанию."
+    },
+    {
+      "q": "Какое расширение TLS позволяет серверу отдавать разные сертификаты для разных доменов на одном IP?",
+      "options": [
+        "SNI (Server Name Indication)",
+        "SYN flag",
+        "CIDR",
+        "CNAME"
+      ],
+      "answer": 0,
+      "explain": "SNI позволяет клиенту указать имя домена до установления TLS-соединения, что даёт серверу возможность выбрать правильный сертификат для мультидоменного хостинга."
+    },
+    {
+      "q": "Какой tcpdump-фильтр захватит только TCP-пакеты с флагом SYN (новые соединения) на интерфейсе eth0?",
+      "options": [
+        "tcpdump -i eth0 port 22",
+        "tcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0'",
+        "tcpdump -i eth0 -w capture.pcap",
+        "tcpdump -i eth0 host 8.8.8.8"
+      ],
+      "answer": 1,
+      "explain": "Фильтр 'tcp[tcpflags] & tcp-syn != 0' проверяет установленный бит SYN во флагах TCP-заголовка, отбирая только пакеты установления соединения."
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+ "phase": "Phase 5 — SRE Practices",
+ "section": "🚨 Incident Management",
+ "topics": [
+  {
+   "title": "Severity levels: P0/P1/P2/P3 — критерии, SLA по реакции",
+   "level": "🟡 Middle",
+   "explanation": "<p>Классификация инцидентов по <strong>severity levels</strong> позволяет команде быстро понять масштаб проблемы и приоритет реакции без долгих обсуждений.</p><table><tr><th>Уровень</th><th>Описание</th><th>Реакция</th></tr><tr><td>P0</td><td>Полный отказ сервиса, влияет на всех пользователей</td><td>немедленно, 24/7</td></tr><tr><td>P1</td><td>Критичная функциональность недоступна для части пользователей</td><td>&lt; 15-30 мин</td></tr><tr><td>P2</td><td>Деградация производительности, workaround есть</td><td>&lt; 4 часа, рабочее время</td></tr><tr><td>P3</td><td>Незначительный баг, косметическая проблема</td><td>в порядке очереди</td></tr></table><p>Критерии обычно завязаны на <code>SLI</code>: если error rate превышает 5%, а p99 latency растёт в 10 раз — это P0/P1. Важно закрепить критерии в runbook, чтобы дежурный инженер не гадал, а сразу открывал инцидент нужного уровня.</p><p>Пример правила в Alertmanager:</p><pre><code>- alert: HighErrorRate\n  expr: rate(http_requests_total{status=~\"5..\"}[5m]) &gt; 0.05\n  labels:\n    severity: P1\n  annotations:\n    summary: \"Error rate above 5% for 5m\"</code></pre><p>SLA по реакции для P0 часто прописывается в договоре с бизнесом: например, «Incident Commander назначается в течение 5 минут после алерта».</p>"
+  },
+  {
+   "title": "Роли: Incident Commander, Communications Lead, Subject Matter Expert",
+   "level": "🟡 Middle",
+   "explanation": "<p>Во время крупного инцидента хаос возникает не из-за отсутствия знаний, а из-за отсутствия <strong>ясного распределения ролей</strong>. Практика Google SRE вводит несколько ключевых ролей.</p><ul><li><strong>Incident Commander (IC)</strong> — координирует работу, принимает решения, не занимается непосредственным дебагом. Держит общую картину.</li><li><strong>Communications Lead</strong> — обновляет статус-страницу, пишет в Slack/Pararam-канал инцидента, информирует поддержку и руководство.</li><li><strong>Subject Matter Expert (SME)</strong> — инженер, который непосредственно копается в коде/инфраструктуре и ищет root cause.</li><li><strong>Scribe</strong> (опционально) — ведёт таймлайн событий для будущего постмортема.</li></ul><p>Пример: при падении базы данных IC говорит «откатываем последний деплой», SME проверяет логи <code>journalctl -fu postgresql</code>, а Communications Lead пишет в канал:</p><pre><code>[P0] Инцидент открыт 14:02. Сервис оплат недоступен.\nIC: @ivan",
+   "SME": "maria. Обновление через 15 минут.</code></pre><p>Чёткое разделение ролей ускоряет реакцию: IC не тратит время на низкоуровневый дебаг, а SME не отвлекается на коммуникацию с бизнесом.</p>"
+  },
+  {
+   "title": "Runbook: структура — симптомы, диагностика, mitigation, эскалация",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Runbook</strong> — это пошаговая инструкция для дежурного инженера, которая превращает стресс 3 часов ночи в понятный чек-лист.</p><p>Стандартная структура runbook:</p><ul><li><strong>Симптомы</strong> — какой алерт сработал, что видно в дашборде (например, «CPU &gt; 90% на всех подах»).</li><li><strong>Диагностика</strong> — конкретные команды для проверки: <code>kubectl top pods</code>, <code>kubectl logs -f deploy/api</code>.</li><li><strong>Mitigation</strong> — быстрые действия для снижения impact: рестарт, скейлинг, откат деплоя.</li><li><strong>Эскалация</strong> — кому и когда звонить, если mitigation не помог.</li></ul><p>Пример фрагмента runbook для OOMKilled подов:</p><pre><code>## Симптомы\nАлерт: KubePodOOMKilled\n\n## Диагностика\nkubectl describe pod &lt;pod&gt; | grep -A5 \"Last State\"\nkubectl top pod &lt;pod&gt;\n\n## Mitigation\nkubectl set resources deployment/api --limits=memory=1Gi\nkubectl rollout restart deployment/api\n\n## Эскалация\nЕсли повторяется 3+ раза за час — звонить team-lead backend</code></pre><p>Хороший runbook хранится в едином месте (Confluence, git-репозиторий рядом с кодом) и регулярно обновляется после каждого нового инцидента.</p>"
+  },
+  {
+   "title": "On-call: ротации, escalation policy, PagerDuty/Opsgenie настройка",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>On-call</strong> — практика дежурства инженеров, которые получают алерты вне рабочего времени и обязаны реагировать в рамках SLA.</p><p>Ключевые элементы:</p><ul><li><strong>Ротация</strong> — расписание, кто дежурит на этой неделе (обычно 1 неделя primary + 1 неделя secondary/backup).</li><li><strong>Escalation policy</strong> — если primary не ответил за N минут, алерт уходит secondary, потом team-lead.</li><li><strong>Инструменты</strong>: PagerDuty, Opsgenie интегрируются с Alertmanager/Prometheus и звонят/шлют SMS дежурному.</li></ul><p>Пример escalation policy в Opsgenie:</p><table><tr><th>Шаг</th><th>Кому</th><th>Задержка</th></tr><tr><td>1</td><td>Primary on-call</td><td>0 мин</td></tr><tr><td>2</td><td>Secondary on-call</td><td>10 мин</td></tr><tr><td>3</td><td>Team lead</td><td>20 мин</td></tr></table><p>Конфиг Alertmanager для интеграции с PagerDuty:</p><pre><code>receivers:\n- name: pagerduty\n  pagerduty_configs:\n  - service_key: &lt;integration_key&gt;\n    severity: critical</code></pre><p>Хорошая практика — ограничивать нагрузку на дежурного (не более 2 алертов ночью подряд без разбора), иначе быстро наступает burnout.</p>"
+  },
+  {
+   "title": "Blameless postmortem: timeline, contributing factors, action items",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Blameless postmortem</strong> — документ после инцидента, цель которого не найти виновного, а понять систему и предотвратить повторение.</p><p>Обязательные разделы:</p><ul><li><strong>Timeline</strong> — точная хронология: когда сломалось, когда заметили, когда починили (с таймстампами).</li><li><strong>Impact</strong> — сколько пользователей затронуто, финансовые потери, длительность.</li><li><strong>Contributing factors</strong> — что способствовало инциденту (не «кто виноват», а «что в системе позволило это произойти»).</li><li><strong>Action items</strong> — конкретные задачи с owner и deadline, чтобы такое не повторилось.</li></ul><p>Пример таймлайна:</p><pre><code>14:02 - деплой v2.4.1 в prod\n14:05 - алерт HighErrorRate сработал\n14:07 - открыт инцидент P1, IC назначен\n14:12 - откат до v2.4.0\n14:15 - error rate вернулся к норме</code></pre><p>Формулировка блейм-free: вместо «Иван забыл добавить миграцию» пишут «процесс деплоя не проверял наличие миграции перед rollout — нужна проверка в CI».</p><p>Action items оформляются как обычные задачи в трекере: <code>[SRE-142] Добавить pre-deploy check миграций",
+   "owner": "maria",
+   "due": 2
+  },
+  {
+   "title": "Root cause analysis: 5 Why, fishbone (Ishikawa) diagram",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Root Cause Analysis (RCA)</strong> — методики поиска глубинной причины инцидента, а не только симптома.</p><p><strong>5 Why</strong> — последовательно 5 раз спрашиваем «почему», пока не дойдём до системной причины:</p><pre><code>1. Почему упал сервис? — Закончилась память.\n2. Почему закончилась память? — Утечка в кэше.\n3. Почему утечка? — Кэш не имел TTL.\n4. Почему не было TTL? — Не было в требованиях к фиче.\n5. Почему не было в требованиях? — Нет checklist для review кода с кэшированием.</code></pre><p>Итог: реальная причина не «утечка памяти», а отсутствие процесса code review для кэширующего кода.</p><p><strong>Fishbone (Ishikawa) diagram</strong> — визуальный метод, группирующий возможные причины по категориям: People, Process, Tools, Environment. Полезен когда причин несколько и они пересекаются, в отличие от линейного 5 Why.</p><ul><li><strong>People</strong>: недостаточно опыта в новом фреймворке</li><li><strong>Process</strong>: нет обязательного code review</li><li><strong>Tools</strong>: отсутствие алертов на рост памяти</li><li><strong>Environment</strong>: staging не воспроизводит нагрузку prod</li></ul><p>Оба метода часто комбинируют внутри postmortem, чтобы action items закрывали именно корневую причину, а не симптом.</p>"
+  },
+  {
+   "title": "Alert tuning: убираем noise, делаем alerts actionable",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Alert fatigue</strong> — главный враг on-call инженера: если алерты шумят постоянно и не требуют действий, дежурные начинают их игнорировать, включая настоящие P0.</p><p>Принципы хорошего алерта:</p><ul><li><strong>Actionable</strong> — если алерт сработал, инженер должен точно знать, что делать (ссылка на runbook в annotations).</li><li><strong>Symptom-based, не cause-based</strong> — алертить на «пользователи получают 500» лучше, чем на «CPU выше 80%» (высокий CPU не всегда проблема).</li><li><strong>Правильный threshold и for</strong> — избегаем flapping через <code>for: 5m</code> в Prometheus.</li></ul><p>Пример плохого алерта (шумный):</p><pre><code>- alert: CPUHigh\n  expr: cpu_usage &gt; 70\n  for: 0s</code></pre><p>Пример хорошего:</p><pre><code>- alert: HighErrorRateUserFacing\n  expr: rate(http_requests_total{status=~\"5..\", route!=\"/health\"}[5m]) &gt; 0.02\n  for: 5m\n  annotations:\n    summary: ",
+   "эндпоинтах": "unbook_url:",
+   "https": ""
+  },
+  {
+   "title": "Проведение major incidents: координация кросс-командных P0",
+   "level": "🔴 Senior",
+   "explanation": "<p>Крупный <strong>P0-инцидент</strong>, затрагивающий несколько команд (например, отказ shared-БД, влияющий на 5 микросервисов), требует другого уровня координации, чем обычный баг одной команды.</p><p>Ключевые практики:</p><ul><li><strong>Единый war room</strong> — один голосовой канал/тред, куда подключаются все затронутые команды, чтобы не дублировать расследование.</li><li><strong>Global IC</strong> — один Incident Commander координирует всех локальных SME из разных команд, не позволяя параллельным «фиксам» конфликтовать.</li><li><strong>Статус каждые 15-30 минут</strong> — Communications Lead шлёт обновления в общий канал и на статус-страницу для внешних пользователей.</li><li><strong>Freeze деплоев</strong> — во время major incident все несвязанные деплои блокируются, чтобы не усложнять картину.</li></ul><p>Пример структуры коммуникации:</p><pre><code>[P0] МАСШТАБНЫЙ ИНЦИДЕНТ 15:00\nЗатронуто: Payments, Orders, Notifications\nGlobal IC: @oleg\nTeam leads: Payments (@anna), Orders (@ivan)\nСтатус: root cause найден в shared Postgres connection pool\nСледующее обновление: 15:30</code></pre><p>После стабилизации проводится совместный postmortem со всеми командами — важно зафиксировать, как именно распространялся cascading failure (например, через <code>Circuit Breaker</code>, который не сработал), и добавить action items на уровне архитектуры, а не одной команды.</p>"
+  }
+ ],
+ "quiz": [
+  {
+   "q": "Какой severity level обычно присваивают инциденту с полным отказом сервиса для всех пользователей?",
+   "options": [
+    "P3",
+    "P2",
+    "P0",
+    "P1"
+   ],
+   "answer": 2,
+   "explain": "P0 — критический уровень, означающий полный отказ сервиса, требующий немедленной реакции 24/7."
+  },
+  {
+   "q": "Какая роль в инциденте отвечает за координацию действий и принятие решений, но не занимается непосредственным дебагом?",
+   "options": [
+    "Subject Matter Expert",
+    "Incident Commander",
+    "Communications Lead",
+    "Scribe"
+   ],
+   "answer": 1,
+   "explain": "Incident Commander держит общую картину и координирует работу команды, оставляя технический дебаг SME."
+  },
+  {
+   "q": "Что из перечисленного НЕ входит в стандартную структуру runbook?",
+   "options": [
+    "Симптомы",
+    "Диагностика",
+    "Финансовая отчётность компании",
+    "Mitigation"
+   ],
+   "answer": 2,
+   "explain": "Runbook описывает симптомы, диагностику, mitigation и эскалацию — финансовая отчётность к нему не относится."
+  },
+  {
+   "q": "Что делает escalation policy в системах типа PagerDuty/Opsgenie?",
+   "options": [
+    "Автоматически исправляет баги в коде",
+    "Передаёт алерт следующему дежурному, если предыдущий не ответил вовремя",
+    "Удаляет старые алерты из истории",
+    "Генерирует отчёты по SLA раз в месяц"
+   ],
+   "answer": 1,
+   "explain": "Escalation policy определяет цепочку эскалации: если primary on-call не отреагировал за заданное время, алерт уходит следующему по цепочке."
+  },
+  {
+   "q": "Какова главная цель blameless postmortem?",
+   "options": [
+    "Найти и наказать виновного сотрудника",
+    "Понять системные причины инцидента и предотвратить повторение",
+    "Составить отчёт для юридического отдела",
+    "Оценить KPI дежурного инженера"
+   ],
+   "answer": 1,
+   "explain": "Blameless postmortem фокусируется на системных факторах, а не на поиске виновного, чтобы люди честно делились деталями."
+  },
+  {
+   "q": "Какой метод RCA предполагает последовательное задавание вопроса «почему» пять раз подряд?",
+   "options": [
+    "Fishbone diagram",
+    "RED method",
+    "5 Why",
+    "USE method"
+   ],
+   "answer": 2,
+   "explain": "5 Why — метод, при котором вопрос «почему» задаётся последовательно для углубления до корневой причины."
+  },
+  {
+   "q": "По каким категориям обычно группируют причины в fishbone (Ishikawa) диаграмме?",
+   "options": [
+    "Rate, Errors, Duration",
+    "People, Process, Tools, Environment",
+    "Utilization, Saturation, Errors",
+    "CPU, Memory, Disk, Network"
+   ],
+   "answer": 1,
+   "explain": "Fishbone диаграмма классически делит причины по категориям People, Process, Tools, Environment (могут быть и другие вариации)."
+  },
+  {
+   "q": "Что означает термин 'alert fatigue'?",
+   "options": [
+    "Усталость сервера от большого количества запросов",
+    "Игнорирование алертов дежурными из-за их избыточного количества и шума",
+    "Автоматическое отключение алертов ночью",
+    "Технику снижения latency в системе алертинга"
+   ],
+   "answer": 1,
+   "explain": "Alert fatigue возникает, когда слишком много шумных, неactionable алертов заставляет инженеров их игнорировать, включая критичные."
+  },
+  {
+   "q": "Почему symptom-based алерты (например, на процент ошибок 5xx) считаются предпочтительнее cause-based (например, просто высокий CPU)?",
+   "options": [
+    "Symptom-based алерты дешевле в настройке",
+    "Cause-based алерты вообще не поддерживаются в Prometheus",
+    "Symptom-based алерты напрямую отражают влияние на пользователя, а высокий CPU не всегда является проблемой",
+    "Symptom-based алерты не требуют threshold"
+   ],
+   "answer": 2,
+   "explain": "Symptom-based подход алертит на реальное влияние на пользователя, тогда как высокая загрузка CPU может быть нормальным поведением и не всегда указывает на проблему."
+  },
+  {
+   "q": "Что отличает координацию major incident, затрагивающего несколько команд, от обычного P0 одной команды?",
+   "options": [
+    "Major incident не требует postmortem",
+    "Появляется Global Incident Commander, единый war room и freeze несвязанных деплоев на время инцидента",
+    "Достаточно уведомить только одного менеджера по почте",
+    "Все команды работают независимо без единой координации"
+   ],
+   "answer": 1,
+   "explain": "Кросс-командные P0 требуют единой точки координации (Global IC), общего war room для всех затронутых команд и заморозки несвязанных деплоев, чтобы не усложнять расследование."
+  }
+ ]
+}

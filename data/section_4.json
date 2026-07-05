@@ -1,0 +1,210 @@
+{
+ "phase": "Phase 2 — Docker + Kubernetes",
+ "section": "🐋 Docker",
+ "topics": [
+  {
+   "title": "Архитектура: daemon, client, image, container, registry",
+   "level": "🟢 Junior",
+   "explanation": "<p>Docker построен на <strong>клиент-серверной архитектуре</strong>. <strong>Docker daemon</strong> (<code>dockerd</code>) — фоновый процесс, который управляет образами, контейнерами, сетями и volume'ами. <strong>Docker client</strong> (команда <code>docker</code>) отправляет запросы демону через REST API, обычно по Unix-сокету <code>/var/run/docker.sock</code>.</p>\n<p><strong>Image (образ)</strong> — неизменяемый шаблон с файловой системой и метаданными приложения, собранный из слоёв. <strong>Container (контейнер)</strong> — запущенный экземпляр образа с собственным изолированным процессом, сетью и writable-слоем.</p>\n<p><strong>Registry (реестр)</strong> — хранилище образов (Docker Hub, приватный registry, GitLab Registry), откуда образы скачиваются (<code>pull</code>) и куда загружаются (<code>push</code>).</p>\n<pre><code>docker version        # версии клиента и демона\ndocker info            # состояние демона, драйверы\ndocker system df       # использование диска образами/контейнерами</code></pre>\n<table>\n<tr><th>Компонент</th><th>Роль</th></tr>\n<tr><td>daemon</td><td>управляет жизненным циклом объектов</td></tr>\n<tr><td>client</td><td>CLI-интерфейс к daemon</td></tr>\n<tr><td>registry</td><td>хранение и распространение образов</td></tr>\n</table>"
+  },
+  {
+   "title": "Команды: run, ps, logs, exec, rm, stop, start, inspect, stats",
+   "level": "🟢 Junior",
+   "explanation": "<p>Базовый набор команд для управления контейнерами покрывает весь жизненный цикл — от запуска до диагностики.</p>\n<ul>\n<li><code>docker run</code> — создаёт и запускает контейнер из образа</li>\n<li><code>docker ps</code> — список запущенных контейнеров (<code>-a</code> — включая остановленные)</li>\n<li><code>docker logs</code> — вывод stdout/stderr контейнера (<code>-f</code> для follow)</li>\n<li><code>docker exec</code> — выполнение команды внутри работающего контейнера</li>\n<li><code>docker stop</code> / <code>start</code> — плавная остановка (SIGTERM) и запуск</li>\n<li><code>docker rm</code> — удаление контейнера</li>\n<li><code>docker inspect</code> — полный JSON с метаданными (IP, mounts, env)</li>\n<li><code>docker stats</code> — CPU/memory/network в реальном времени</li>\n</ul>\n<p>Типичный сценарий отладки:</p>\n<pre><code>docker run -d --name web -p 8080:80 nginx\ndocker ps\ndocker logs -f web\ndocker exec -it web bash\ndocker inspect web | grep IPAddress\ndocker stop web && docker rm web</code></pre>\n<p>Флаг <strong>-d</strong> запускает в фоне, <strong>-it</strong> — интерактивный режим с TTY, необходимый для получения shell внутри контейнера.</p>"
+  },
+  {
+   "title": "Dockerfile: FROM, RUN, COPY, ADD, ENV, EXPOSE, CMD, ENTRYPOINT",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Dockerfile</strong> — текстовый рецепт для сборки образа, где каждая инструкция создаёт новый слой.</p>\n<ul>\n<li><code>FROM</code> — базовый образ, первая обязательная инструкция</li>\n<li><code>RUN</code> — выполняет команду во время сборки (установка пакетов)</li>\n<li><code>COPY</code> — копирует файлы с хоста в образ</li>\n<li><code>ADD</code> — как COPY, но умеет распаковывать архивы и скачивать по URL (использовать осторожно)</li>\n<li><code>ENV</code> — переменные окружения, доступные в контейнере</li>\n<li><code>EXPOSE</code> — документирует порт (не публикует его автоматически)</li>\n<li><code>CMD</code> — команда по умолчанию, переопределяется при <code>docker run</code></li>\n<li><code>ENTRYPOINT</code> — фиксированная точка входа, CMD становится аргументами к ней</li>\n</ul>\n<pre><code>FROM node:20-alpine\nENV NODE_ENV=production\nCOPY package*.json ./\nRUN npm ci --omit=dev\nCOPY . .\nEXPOSE 3000\nENTRYPOINT [\"node\"]\nCMD [\"server.js\"]</code></pre>\n<p>Разница ENTRYPOINT/CMD важна: <code>docker run image script.js</code> заменит CMD, но сохранит <code>node</code> как ENTRYPOINT.</p>"
+  },
+  {
+   "title": "Слои образов: кеширование, порядок инструкций для оптимизации",
+   "level": "🟢 Junior",
+   "explanation": "<p>Образ Docker состоит из <strong>слоёв</strong> — каждая инструкция Dockerfile (кроме некоторых) создаёт новый read-only слой, который кешируется. При повторной сборке Docker проверяет, изменился ли слой; если нет — использует кеш, что резко ускоряет билд.</p>\n<p>Ключевое правило оптимизации: <strong>инструкции, которые меняются редко, должны идти раньше</strong>, а часто меняющиеся — позже. Классическая ошибка — копировать весь код проекта до установки зависимостей:</p>\n<pre><code># Плохо: любое изменение кода инвалидирует кеш npm install\nCOPY . .\nRUN npm install\n\n# Хорошо: кеш npm install сохраняется, если package.json не менялся\nCOPY package*.json ./\nRUN npm install\nCOPY . .</code></pre>\n<p>Также стоит объединять связанные RUN-команды в одну (через <code>&&</code>), чтобы не создавать лишние слои и корректно чистить кеш пакетного менеджера в том же слое:</p>\n<pre><code>RUN apt-get update && apt-get install -y curl     && rm -rf /var/lib/apt/lists/*</code></pre>\n<p>Слои хранятся в overlay-файловой системе, что позволяет разным образам делить общие базовые слои и экономить место на диске.</p>"
+  },
+  {
+   "title": "Сборка: docker build -t name:tag ., .dockerignore",
+   "level": "🟢 Junior",
+   "explanation": "<p>Сборка образа выполняется командой <code>docker build</code>, которая читает Dockerfile и context (директорию с файлами, доступными для COPY/ADD).</p>\n<pre><code>docker build -t myapp:1.0 .\ndocker build -t myapp:latest -f Dockerfile.prod .\ndocker build --no-cache -t myapp:1.0 .   # игнорировать кеш слоёв\ndocker build --build-arg VERSION=1.2 -t myapp .</code></pre>\n<p>Флаг <code>-t</code> задаёт имя и тег образа (<code>name:tag</code>), точка <code>.</code> — путь к build context. Docker отправляет весь context демону, поэтому важно исключать ненужные файлы через <strong><code>.dockerignore</code></strong> — работает аналогично <code>.gitignore</code> и уменьшает размер контекста, ускоряя сборку.</p>\n<pre><code># .dockerignore\nnode_modules\n.git\n*.log\n.env\ndist</code></pre>\n<p>Без <code>.dockerignore</code> в образ может попасть <code>node_modules</code> или <code>.git</code> — это раздувает образ и может привести к утечке секретов. Проверить итоговый размер образа можно командой <code>docker images</code>.</p>"
+  },
+  {
+   "title": "Docker Hub: push, pull, приватные образы, docker login",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Docker Hub</strong> — публичный реестр образов по умолчанию. Работа с ним строится на трёх операциях: аутентификация, отправка и получение образов.</p>\n<pre><code>docker login                          # ввод логина/пароля или access token\ndocker tag myapp:1.0 user/myapp:1.0   # присвоить тег с namespace\ndocker push user/myapp:1.0            # загрузить в Hub\ndocker pull user/myapp:1.0            # скачать образ\ndocker logout</code></pre>\n<p>Для <strong>приватных образов</strong> нужен аккаунт с приватным репозиторием (бесплатный план ограничивает их количество) или собственный private registry. Для CI/CD рекомендуется использовать не пароль, а <strong>access token</strong>, созданный в настройках аккаунта — его легче ревокировать при компрометации.</p>\n<p>Официальные образы (<code>nginx</code>, <code>postgres</code>) не требуют namespace пользователя, а публикуются напрямую от имени Docker. Для собственных образов namespace обязателен: <code>docker.io/username/image:tag</code>.</p>\n<table><tr><th>Команда</th><th>Действие</th></tr>\n<tr><td>login/logout</td><td>аутентификация в registry</td></tr>\n<tr><td>tag</td><td>переименование локального образа под registry-путь</td></tr>\n<tr><td>push/pull</td><td>отправка/получение образа</td></tr>\n</table>"
+  },
+  {
+   "title": "Сети: bridge (default), host, none, custom network",
+   "level": "🟢 Junior",
+   "explanation": "<p>Docker предоставляет несколько сетевых драйверов, определяющих, как контейнеры взаимодействуют друг с другом и с внешним миром.</p>\n<ul>\n<li><strong>bridge</strong> — сеть по умолчанию; контейнеры получают приватные IP и общаются через виртуальный мост docker0</li>\n<li><strong>host</strong> — контейнер использует сетевой стек хоста напрямую, без изоляции портов (максимальная производительность, минимальная изоляция)</li>\n<li><strong>none</strong> — полная изоляция, нет сетевого интерфейса кроме loopback</li>\n<li><strong>custom network</strong> — пользовательская bridge-сеть с встроенным DNS: контейнеры находят друг друга по имени</li>\n</ul>\n<pre><code>docker network create app-net\ndocker run -d --network app-net --name db postgres\ndocker run -d --network app-net --name api myapp\n# внутри api доступен хост \"db\" по DNS-имени\ndocker network ls\ndocker network inspect app-net</code></pre>\n<p>Дефолтная bridge-сеть <strong>не поддерживает</strong> автоматический DNS между контейнерами — для этого нужна именно пользовательская сеть, созданная через <code>docker network create</code>. Это одна из причин, почему Compose всегда создаёт отдельную сеть для проекта.</p>"
+  },
+  {
+   "title": "Volumes: -v host:container, named volumes, tmpfs mounts",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Volumes</strong> решают проблему персистентности данных, так как writable-слой контейнера уничтожается при его удалении.</p>\n<ul>\n<li><code>-v /host/path:/container/path</code> — bind mount, привязка конкретной директории хоста</li>\n<li><strong>named volumes</strong> — управляются Docker, хранятся в <code>/var/lib/docker/volumes/</code>, переносимы между хостами через drivers</li>\n<li><strong>tmpfs mounts</strong> — данные хранятся только в памяти хоста, исчезают при остановке контейнера (для секретов/кешей)</li>\n</ul>\n<pre><code>docker volume create dbdata\ndocker run -d -v dbdata:/var/lib/postgresql/data postgres\ndocker run -d -v $(pwd)/config:/etc/app/config:ro myapp\ndocker run -d --tmpfs /run myapp\ndocker volume ls\ndocker volume inspect dbdata\ndocker volume rm dbdata</code></pre>\n<p>Named volumes предпочтительнее bind mounts в production: Docker сам управляет их жизненным циклом, драйверами (NFS, cloud storage) и правами доступа. Bind mounts удобны для разработки — код с хоста мгновенно виден в контейнере. Флаг <code>:ro</code> монтирует volume в режиме \"только чтение\".</p>"
+  },
+  {
+   "title": "Docker Compose: services, networks, volumes, depends_on, env_file",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Docker Compose</strong> — инструмент для описания и запуска multi-container приложений через один YAML-файл.</p>\n<ul>\n<li><code>services</code> — определение каждого контейнера (образ, порты, команда)</li>\n<li><code>networks</code> — кастомные сети для изоляции групп сервисов</li>\n<li><code>volumes</code> — именованные volume'ы, доступные нескольким сервисам</li>\n<li><code>depends_on</code> — порядок запуска (не гарантирует готовность приложения, только запуск контейнера)</li>\n<li><code>env_file</code> — подключение переменных окружения из файла</li>\n</ul>\n<pre><code>services:\n  web:\n    build: .\n    ports: [\"8080:80\"]\n    depends_on: [db]\n    env_file: .env\n  db:\n    image: postgres:16\n    volumes: [\"dbdata:/var/lib/postgresql/data\"]\n    networks: [backend]\nvolumes:\n  dbdata:\nnetworks:\n  backend:</code></pre>\n<pre><code>docker compose up -d\ndocker compose logs -f web\ndocker compose down -v</code></pre>\n<p>Для реальной готовности сервиса вместо простого <code>depends_on</code> используют <code>condition: service_healthy</code> в связке с healthcheck.</p>"
+  },
+  {
+   "title": "Multi-stage builds: AS builder, уменьшение итогового образа",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Multi-stage builds</strong> позволяют использовать несколько инструкций <code>FROM</code> в одном Dockerfile, чтобы отделить окружение сборки от окружения выполнения и получить минимальный итоговый образ.</p>\n<pre><code>FROM golang:1.22 AS builder\nWORKDIR /src\nCOPY . .\nRUN go build -o app .\n\nFROM alpine:3.19\nCOPY --from=builder /src/app /usr/local/bin/app\nENTRYPOINT [\"app\"]</code></pre>\n<p>На первом этапе (<code>AS builder</code>) устанавливаются компиляторы, зависимости, исходники — весь этот \"тяжёлый\" слой отбрасывается. На финальный этап через <code>COPY --from=builder</code> переносится только собранный бинарник. Итоговый образ содержит лишь runtime-зависимости, а не весь toolchain.</p>\n<p>Это критично для production: образ на Go/Rust может уменьшиться с ~900 МБ до ~15 МБ. Можно использовать более двух стадий — например, отдельно для тестов, отдельно для линтинга — а собирать финальный образ только из нужной стадии.</p>"
+  },
+  {
+   "title": "Security: rootless mode, --read-only, --cap-drop=ALL, USER директива",
+   "level": "🟡 Middle",
+   "explanation": "<p>По умолчанию Docker-контейнеры запускаются с root-правами демона, что создаёт риски при компрометации приложения. Ряд практик усиливает изоляцию.</p>\n<ul>\n<li><strong>rootless mode</strong> — сам Docker daemon работает без root на хосте, снижая ущерб при побеге из контейнера</li>\n<li><code>--read-only</code> — корневая файловая система контейнера доступна только на чтение, запись возможна лишь во явно смонтированные volume'ы/tmpfs</li>\n<li><code>--cap-drop=ALL</code> — убирает все Linux capabilities (например, CAP_NET_RAW, CAP_SYS_ADMIN), добавляя обратно только нужные через <code>--cap-add</code></li>\n<li><strong>USER</strong> в Dockerfile — переключает процесс внутри контейнера с root на непривилегированного пользователя</li>\n</ul>\n<pre><code># Dockerfile\nRUN adduser -D appuser\nUSER appuser</code></pre>\n<pre><code>docker run --read-only --cap-drop=ALL   --tmpfs /tmp -d myapp</code></pre>\n<p>Комбинация всех этих мер значительно снижает поверхность атаки: даже при RCE в приложении злоумышленник не сможет писать на диск, получить root или использовать привилегированные syscalls.</p>"
+  },
+  {
+   "title": "Resource limits: --memory, --cpus, --pids-limit",
+   "level": "🟡 Middle",
+   "explanation": "<p>Без ограничений контейнер может потреблять все ресурсы хоста, вызывая \"шумного соседа\" (noisy neighbor) и деградацию других сервисов. Docker позволяет ограничивать ресурсы на уровне cgroups.</p>\n<ul>\n<li><code>--memory</code> — жёсткий лимит памяти; при превышении контейнер получает OOM kill</li>\n<li><code>--cpus</code> — лимит на количество ядер CPU (может быть дробным, например 0.5)</li>\n<li><code>--pids-limit</code> — максимальное число процессов/потоков внутри контейнера, защита от fork-бомб</li>\n</ul>\n<pre><code>docker run -d --memory=512m --memory-swap=512m   --cpus=1.5 --pids-limit=200 myapp</code></pre>\n<p><code>--memory-swap</code> равное <code>--memory</code> отключает использование swap. Проверить текущее использование ресурсов можно через <code>docker stats</code>, которая выводит CPU%, MEM USAGE/LIMIT в реальном времени.</p>\n<table><tr><th>Флаг</th><th>Что ограничивает</th></tr>\n<tr><td>--memory</td><td>оперативная память</td></tr>\n<tr><td>--cpus</td><td>доля CPU-времени</td></tr>\n<tr><td>--pids-limit</td><td>число процессов</td></tr>\n</table>\n<p>В Docker Compose аналогичные лимиты задаются в блоке <code>deploy.resources.limits</code>.</p>"
+  },
+  {
+   "title": "Health checks: HEALTHCHECK в Dockerfile, --health-cmd",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>HEALTHCHECK</strong> — инструкция, позволяющая Docker самому определять, работает ли приложение внутри контейнера корректно, а не только запущен ли процесс.</p>\n<pre><code># Dockerfile\nHEALTHCHECK --interval=30s --timeout=3s --retries=3   CMD curl -f http://localhost/health || exit 1</code></pre>\n<p>Параметры: <code>--interval</code> — периодичность проверки, <code>--timeout</code> — максимальное время ожидания ответа, <code>--retries</code> — сколько неудач подряд нужно для статуса <em>unhealthy</em>, <code>--start-period</code> — время на прогрев перед началом отсчёта неудач.</p>\n<p>Тот же эффект достигается при запуске без пересборки образа:</p>\n<pre><code>docker run --health-cmd=\"curl -f http://localhost/ || exit 1\"   --health-interval=30s --health-retries=3 -d myapp\ndocker ps   # статус healthy/unhealthy в столбце STATUS\ndocker inspect --format='{{.State.Health.Status}}' myapp</code></pre>\n<p>В Docker Compose статус healthcheck используется вместе с <code>depends_on: condition: service_healthy</code>, чтобы зависимые сервисы стартовали только после реальной готовности, а не просто после запуска контейнера.</p>"
+  },
+  {
+   "title": "Сканирование: trivy image name, docker scout cves",
+   "level": "🟡 Middle",
+   "explanation": "<p>Образы Docker часто содержат уязвимости в базовых слоях (ОС, системные библиотеки) или в зависимостях приложения. Сканеры безопасности анализируют слои образа и сверяют пакеты с базами CVE.</p>\n<pre><code>trivy image myapp:1.0\ntrivy image --severity HIGH,CRITICAL myapp:1.0\ntrivy image --exit-code 1 --severity CRITICAL myapp:1.0\n\ndocker scout cves myapp:1.0\ndocker scout recommendations myapp:1.0</code></pre>\n<p><strong>Trivy</strong> — open-source сканер от Aqua Security, проверяет ОС-пакеты, зависимости языков (npm, pip, go.mod) и даже конфигурации IaC. Флаг <code>--exit-code 1</code> делает команду пригодной для CI/CD gate — pipeline падает при найденных критических уязвимостях.</p>\n<p><strong>Docker Scout</strong> — встроенное решение от самого Docker, интегрированное с Docker Hub и Desktop, показывает не только CVE, но и рекомендации по обновлению базового образа для уменьшения количества уязвимостей.</p>\n<p>Сканирование рекомендуется встраивать в CI pipeline перед push образа в registry, а не только на этапе ручной проверки.</p>"
+  }
+ ],
+ "quiz": [
+  {
+   "q": "Какой компонент Docker управляет жизненным циклом образов и контейнеров и общается с клиентом через REST API?",
+   "options": [
+    "Docker Compose",
+    "Docker Hub",
+    "containerd shim",
+    "Docker daemon (dockerd)"
+   ],
+   "answer": 3,
+   "explain": "Daemon (dockerd) — фоновый процесс, принимающий команды от клиента через Unix-сокет и управляющий образами, контейнерами, сетями и volume'ами."
+  },
+  {
+   "q": "Какая команда покажет CPU, память и сетевую активность работающих контейнеров в реальном времени?",
+   "options": [
+    "docker ps -a",
+    "docker top",
+    "docker stats",
+    "docker inspect"
+   ],
+   "answer": 2,
+   "explain": "docker stats выводит live-поток метрик использования ресурсов по каждому контейнеру."
+  },
+  {
+   "q": "В чём главное отличие ENTRYPOINT от CMD в Dockerfile?",
+   "options": [
+    "ENTRYPOINT выполняется только при сборке образа",
+    "ENTRYPOINT работает только в Alpine-образах",
+    "CMD нельзя переопределить при docker run",
+    "ENTRYPOINT задаёт фиксированную команду, CMD — аргументы по умолчанию, которые легко переопределить"
+   ],
+   "answer": 3,
+   "explain": "ENTRYPOINT определяет исполняемый процесс контейнера, а CMD передаёт ему аргументы по умолчанию; docker run легко подменяет CMD, но не ENTRYPOINT без флага --entrypoint."
+  },
+  {
+   "q": "Почему в Dockerfile рекомендуется копировать package.json и ставить зависимости раньше, чем копировать весь исходный код?",
+   "options": [
+    "Чтобы уменьшить количество слоёв образа до одного",
+    "Потому что COPY не работает после RUN",
+    "Чтобы кеш слоя с установкой зависимостей не инвалидировался при каждом изменении кода",
+    "Чтобы избежать использования .dockerignore"
+   ],
+   "answer": 2,
+   "explain": "Docker кеширует слои по порядку инструкций; если зависимости копируются и устанавливаются раньше редко меняющегося кода, кеш npm/pip install переиспользуется при пересборке."
+  },
+  {
+   "q": "Какой файл позволяет исключить ненужные файлы (node_modules, .git) из контекста сборки docker build?",
+   "options": [
+    ".gitignore",
+    "Dockerfile.ignore",
+    "docker-compose.override.yml",
+    ".dockerignore"
+   ],
+   "answer": 3,
+   "explain": ".dockerignore работает аналогично .gitignore и уменьшает размер build context, ускоряя сборку и снижая риск утечки секретов."
+  },
+  {
+   "q": "Что необходимо выполнить перед docker push образа в приватный репозиторий Docker Hub?",
+   "options": [
+    "docker build --private",
+    "docker volume create",
+    "docker network create",
+    "docker login"
+   ],
+   "answer": 3,
+   "explain": "docker login аутентифицирует клиента в registry; без неё push в приватный репозиторий будет отклонён."
+  },
+  {
+   "q": "Какая сетевая особенность отличает пользовательскую (custom) bridge-сеть от дефолтной bridge-сети Docker?",
+   "options": [
+    "Дефолтная bridge-сеть быстрее из-за отсутствия NAT",
+    "Custom bridge-сеть не поддерживает публикацию портов",
+    "Custom bridge-сеть предоставляет встроенный DNS — контейнеры находят друг друга по имени",
+    "Custom bridge-сеть всегда использует host network stack"
+   ],
+   "answer": 2,
+   "explain": "В дефолтной bridge-сети нет автоматического DNS между контейнерами; в пользовательской сети Docker предоставляет DNS resolution по именам контейнеров."
+  },
+  {
+   "q": "Чем named volume отличается от tmpfs mount?",
+   "options": [
+    "Named volume доступен только в режиме read-only",
+    "Named volume нельзя использовать в Docker Compose",
+    "Named volume хранит данные на диске хоста персистентно, tmpfs — только в памяти и исчезает после остановки контейнера",
+    "tmpfs можно использовать лишь в Windows-контейнерах"
+   ],
+   "answer": 2,
+   "explain": "Named volumes управляются Docker и хранятся на диске (persist между перезапусками), tmpfs существует только в RAM хоста и теряется при остановке контейнера."
+  },
+  {
+   "q": "Что делает опция depends_on в Docker Compose?",
+   "options": [
+    "Определяет порядок запуска контейнеров, но не гарантирует готовность приложения внутри",
+    "Автоматически настраивает healthcheck для сервиса",
+    "Гарантирует, что зависимый сервис полностью готов принимать запросы",
+    "Ограничивает ресурсы CPU и памяти для сервиса"
+   ],
+   "answer": 0,
+   "explain": "depends_on контролирует лишь порядок старта контейнеров; для ожидания реальной готовности нужен healthcheck и condition: service_healthy."
+  },
+  {
+   "q": "Зачем в Dockerfile применяют multi-stage builds с несколькими инструкциями FROM?",
+   "options": [
+    "Чтобы обойти ограничение на использование ENTRYPOINT",
+    "Чтобы автоматически включить HEALTHCHECK",
+    "Чтобы отделить окружение сборки от runtime и получить минимальный итоговый образ",
+    "Чтобы одновременно запускать несколько контейнеров из одного образа"
+   ],
+   "answer": 2,
+   "explain": "Multi-stage build позволяет использовать один stage для компиляции с полным toolchain, а в финальный образ копировать только результат сборки через COPY --from, сильно уменьшая размер образа."
+  },
+  {
+   "q": "Какая опция docker run переводит корневую файловую систему контейнера в режим 'только чтение', требуя явных volume/tmpfs для записи?",
+   "options": [
+    "--pids-limit",
+    "--cap-drop=ALL",
+    "--memory-swap",
+    "--read-only"
+   ],
+   "answer": 3,
+   "explain": "--read-only делает root filesystem неизменяемой; запись возможна только в явно смонтированные writable-точки (volume, tmpfs)."
+  },
+  {
+   "q": "Какая команда сканирует образ Docker на известные уязвимости (CVE) и может быть настроена как gate в CI pipeline через --exit-code?",
+   "options": [
+    "docker diff myapp:1.0",
+    "docker history myapp:1.0",
+    "docker inspect myapp:1.0",
+    "trivy image myapp:1.0"
+   ],
+   "answer": 3,
+   "explain": "trivy image анализирует слои образа и сверяет пакеты с базами CVE; флаг --exit-code 1 при найденных критических уязвимостях прерывает CI pipeline."
+  }
+ ]
+}

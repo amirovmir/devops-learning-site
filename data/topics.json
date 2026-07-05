@@ -1,0 +1,970 @@
+[
+ {
+  "phase": "Phase 1 — Linux + Bash + Git",
+  "section": "🐧 Linux Fundamentals",
+  "topics": [
+   {
+    "title": "Файловая система: структура /, /etc, /var, /home, /proc, /sys, /tmp",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Базовые команды: ls, cd, mkdir, rm, cp, mv, touch, cat, less, head, tail",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Права доступа: chmod, chown, chgrp — числовые и символьные",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Специальные биты: setuid, setgid, sticky bit, umask",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Управление пользователями: useradd, usermod, passwd, /etc/passwd, /etc/shadow",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Управление группами: groupadd, /etc/group, id, groups",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Процессы: ps, top, htop, kill, pkill, bg, fg, jobs, nice, renice",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Package management: apt / yum / dnf — install, remove, update, search",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Systemd: systemctl start/stop/restart/enable/status, journalctl -fu",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Написание юнитов systemd: service, timer, socket файлы",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Текстовые редакторы: vim — режимы, основные команды, выход",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Поиск файлов: find, locate, which, whereis",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Архивирование: tar (czf / xzf), gzip, rsync",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Диски: df -h, du -sh, lsblk, blkid, mount/umount, /etc/fstab",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "LVM: pvcreate, vgcreate, lvcreate, lvextend, resize2fs/xfs_growfs",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Системные логи: /var/log/, journald, tail -f, grep в логах",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Cron: crontab -e, синтаксис (* * * * *), /etc/cron.d/",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Переменные окружения: export, env, .bashrc, .profile, PATH",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "SSH: подключение, ssh-keygen, authorized_keys, ~/.ssh/config",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Kernel параметры: sysctl -a, /proc/sys, modprobe, lsmod",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 1 — Linux + Bash + Git",
+  "section": "🌐 Networking Basics",
+  "topics": [
+   {
+    "title": "Модель OSI: 7 уровней и что происходит на каждом",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "TCP vs UDP: разница, 3-way handshake, use cases",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "IP-адресация: IPv4, CIDR нотация (/24, /16), подсети",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Утилиты: ip addr, ip route, ss -tulpn, ping, traceroute",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "DNS: dig, nslookup, host — A, AAAA, MX, CNAME, PTR, TXT записи",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "HTTP/HTTPS: методы (GET POST PUT DELETE), коды (2xx 3xx 4xx 5xx)",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "curl: запросы, заголовки (-H), методы (-X), body (-d), -v для дебага",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Firewall: iptables — таблицы, цепочки, правила (INPUT OUTPUT FORWARD)",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "nftables: современная альтернатива iptables, синтаксис",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "UFW: базовая настройка, allow/deny правила, статус",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "SSL/TLS: что такое сертификат, цепочка CA, SNI, openssl s_client",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Let's Encrypt + certbot: получение и автообновление сертификатов",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Анализ трафика: tcpdump -i eth0, фильтры, wireshark (GUI)",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Nginx как reverse proxy: upstream, proxy_pass, location блоки",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 1 — Linux + Bash + Git",
+  "section": "⚙️ Bash Scripting",
+  "topics": [
+   {
+    "title": "Переменные, строки, арифметика: $var, $(( )), \"${var:-default}\"",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Условия: if/elif/else, case, [ ], [[ ]], -eq -ne -gt -lt -z -n",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Циклы: for, while, until, break, continue",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Функции: определение, аргументы ($1 $2 $@), return, local",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Коды возврата: $?, &&, ||, set -euo pipefail",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Отладка: set -x, bash -n (syntax check), shellcheck",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Текстовые утилиты: grep -E, sed s/old/new/g, awk {print $1}",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Регулярные выражения: базовый BRE и расширенный ERE синтаксис",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Pipe и перенаправление: |, >, >>, <, 2>&1, /dev/null",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Продвинутый sed: -i (in-place), диапазоны строк, несколько выражений",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Продвинутый awk: BEGIN/END, поля, условия, getline, printf",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Массивы: индексные (arr=(a b c)), ассоциативные (declare -A)",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Подстановка процессов: <(cmd), xargs -I{}, parallel",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Обработка сигналов: trap \"cleanup\" EXIT INT TERM",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Скрипты в prod: logging с timestamp, idempotency, lock файлы",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 1 — Linux + Bash + Git",
+  "section": "🔀 Git & Version Control",
+  "topics": [
+   {
+    "title": "Базовые команды: init, clone, add, commit, push, pull, status, diff",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Ветки: branch, checkout/switch, merge, rebase — основы",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "История: log --oneline --graph, diff, show, blame",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Отмена изменений: reset --soft/hard, revert, stash",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Remote: origin, fetch, pull --rebase, push, fork workflow",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Теги: tag -a, push --tags, semantic versioning (v1.2.3)",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Git flow / trunk-based development: стратегии ветвления",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Git hooks: pre-commit, commit-msg, pre-push",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 2 — Docker + Kubernetes",
+  "section": "🐋 Docker",
+  "topics": [
+   {
+    "title": "Архитектура: daemon, client, image, container, registry",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Команды: run, ps, logs, exec, rm, stop, start, inspect, stats",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Dockerfile: FROM, RUN, COPY, ADD, ENV, EXPOSE, CMD, ENTRYPOINT",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Слои образов: кеширование, порядок инструкций для оптимизации",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Сборка: docker build -t name:tag ., .dockerignore",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Docker Hub: push, pull, приватные образы, docker login",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Сети: bridge (default), host, none, custom network",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Volumes: -v host:container, named volumes, tmpfs mounts",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Docker Compose: services, networks, volumes, depends_on, env_file",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Multi-stage builds: AS builder, уменьшение итогового образа",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Security: rootless mode, --read-only, --cap-drop=ALL, USER директива",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Resource limits: --memory, --cpus, --pids-limit",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Health checks: HEALTHCHECK в Dockerfile, --health-cmd",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Сканирование: trivy image name, docker scout cves",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 2 — Docker + Kubernetes",
+  "section": "☸️ Kubernetes — Основы",
+  "topics": [
+   {
+    "title": "Архитектура: API Server, etcd, Scheduler, Controller Manager, kubelet",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "kubectl: apply, get, describe, logs, exec, delete, port-forward, cp",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Pod: жизненный цикл, multi-container pods, init containers",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Deployment: replicas, rolling update (maxSurge/maxUnavailable), rollback",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Service: ClusterIP, NodePort, LoadBalancer, ExternalName",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "ConfigMap: создание, монтирование через env и volume",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Secret: типы (Opaque, TLS, docker-registry), base64, sealed-secrets",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Namespace: изоляция, context, -n флаг, ResourceQuota",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "YAML манифесты: apiVersion, kind, metadata, spec, labels, annotations",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Liveness probe: httpGet, exec, tcpSocket — что и когда",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Readiness probe: отличие от liveness, startup probe",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Resource requests/limits: CPU (m), memory (Mi/Gi), OOMKilled",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "StatefulSet: headless service, volumeClaimTemplates, ordinal index",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "DaemonSet: запуск на каждом узле, tolerations",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "PersistentVolume / PVC / StorageClass: dynamic provisioning",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Ingress: path routing, host routing, TLS, nginx-ingress controller",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "RBAC: Role, ClusterRole, RoleBinding, ClusterRoleBinding, SA",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Network Policy: ingress/egress правила между Pod",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Helm 3: chart структура, values.yaml, install/upgrade/rollback, --dry-run",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "HPA: автоскейлинг по CPU/memory, custom metrics",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 3 — CI/CD + Terraform + Ansible",
+  "section": "🔄 CI/CD Pipelines",
+  "topics": [
+   {
+    "title": "Концепции: CI vs CD (Delivery vs Deployment) — отличия",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Git webhooks: как pipeline триггерится на push/MR/tag",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Jenkins: установка, Jenkinsfile, declarative vs scripted pipeline",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Jenkins: stages, steps, post (always/success/failure), параметры",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "GitLab CI: .gitlab-ci.yml, stages, jobs, artifacts, cache, runners",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "GitHub Actions: workflow yaml, jobs, steps, actions/checkout, secrets",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Секреты в pipeline: Vault integration, encrypted vars",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Docker build & push в pipeline: buildah, kaniko (rootless)",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Запуск тестов: unit, integration, coverage reports, junit xml",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Артефакты: архивирование, передача между stages, retention policy",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Параллельные jobs и matrix builds",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Multi-env deploy: dev → staging → prod с manual approval gate",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Blue-green deployment: переключение трафика без downtime",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Canary release: постепенное увеличение трафика",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "GitOps: ArgoCD / Flux — sync манифестов из Git в кластер",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 3 — CI/CD + Terraform + Ansible",
+  "section": "🏗️ Terraform",
+  "topics": [
+   {
+    "title": "HCL синтаксис: resource, variable, output, locals, data",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Провайдеры: provider блок, версионирование, required_providers",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Workflow: init, plan, apply, destroy, show, state list",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "State file: tfstate, что хранит, state locking",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Базовые ресурсы AWS: VPC, subnet, EC2, security group, IAM role",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Remote backend: S3 + DynamoDB lock или Terraform Cloud",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Модули: создание, source, версионирование, reusability",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Workspace: dev/staging/prod окружения через workspace",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "count и for_each: динамическое создание ресурсов",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Dynamic blocks: вложенные блоки с for_each",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "terraform import: добавить существующий ресурс в state",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Preconditions / postconditions: валидации в коде",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "tflint, terraform validate, terraform fmt: качество кода",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 3 — CI/CD + Terraform + Ansible",
+  "section": "🤖 Ansible",
+  "topics": [
+   {
+    "title": "Архитектура: control node, managed nodes, агентless через SSH",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Inventory: hosts файл, INI и YAML форматы, группы",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Ad-hoc: ansible all -m ping, -m shell, -m copy -a \"src= dest=\"",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Playbook: структура (---), hosts, tasks, handlers, notify",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Модули: apt/yum, copy, template, service, systemd, user, file, git",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Переменные: vars, vars_files, group_vars/, host_vars/, register",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Idempotency: понимание и проектирование идемпотентных задач",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Jinja2 шаблоны: {{ var }}, {% if %}, {% for %} в .j2 файлах",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Roles: структура (tasks/ handlers/ templates/ vars/ defaults/)",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Loops: loop, with_items, with_dict, with_fileglob",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Ansible Vault: encrypt_string, vault файлы, --ask-vault-pass",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Dynamic inventory: aws_ec2, gcp_compute плагины",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Error handling: failed_when, ignore_errors, block/rescue/always",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 4 — Cloud + Monitoring + Security",
+  "section": "☁️ Cloud Platform (AWS / GCP / Azure)",
+  "topics": [
+   {
+    "title": "IAM: пользователи, роли, политики (JSON), принцип минимальных привилегий",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Вычисления: EC2/GCE/VM — типы, launch, lifecycle, user-data",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Сети: VPC, subnets (public/private), route tables, Internet GW, NAT GW",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Хранение объектов: S3/GCS/Blob — buckets, ACL, versioning, lifecycle",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Managed DB: RDS/Cloud SQL — setup, backup, read replica, failover",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Load Balancer: ALB/NLB, target groups, health checks, listeners",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Container: ECS/GKE/AKS — managed Kubernetes, node pools",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Serverless: Lambda/Functions — triggers, layers, concurrency, cold start",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "DNS: Route53/Cloud DNS — routing policies (latency, weighted, failover)",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "CDN: CloudFront/Cloud CDN — cache behaviors, OAC, invalidation",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Secrets: AWS Secrets Manager / GCP Secret Manager + rotation",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Logging: CloudWatch Logs / Cloud Logging — log groups, metric filters",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Cost optimization: Reserved/Spot/Preemptible, Savings Plans, rightsizing",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Advanced: VPC Peering, Transit Gateway, PrivateLink, Direct Connect/Interconnect",
+    "level": "🔴 Senior"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 4 — Cloud + Monitoring + Security",
+  "section": "📊 Prometheus + Grafana",
+  "topics": [
+   {
+    "title": "Три столпа observability: metrics, logs, traces — роль каждого",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Типы метрик Prometheus: Counter, Gauge, Histogram, Summary",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Prometheus config: scrape_configs, targets, scrape_interval",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "PromQL базовый: selectors, rate(), sum(), avg(), by(label)",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Alertmanager: alert rules, routes, inhibit_rules, receivers (Slack/email)",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Node Exporter: CPU, memory, disk, network метрики хоста",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Grafana: datasource, Dashboard, Panel types (graph, gauge, table, heatmap)",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Grafana Alerting: alert rules, contact points, notification policies",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Service Discovery: file_sd_configs, kubernetes_sd, ec2_sd",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Recording rules: предвычисленные метрики для производительности",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Custom exporter: написание на Go или Python (prometheus_client)",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Grafana variables и templating: $datasource, $job, $instance",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Thanos / Victoria Metrics: long-term storage, global view",
+    "level": "🔴 Senior"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 4 — Cloud + Monitoring + Security",
+  "section": "📋 Logging: ELK / Loki",
+  "topics": [
+   {
+    "title": "ELK архитектура: Elasticsearch, Logstash, Kibana — как взаимодействуют",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Filebeat: конфиг, inputs (log, docker), output (Logstash / ES)",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Logstash pipeline: input, filter (grok, mutate, date), output",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Grok patterns: парсинг nginx/apache/custom логов",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Kibana: Discover, KQL запросы, создание Dashboard",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Elasticsearch: индексы, mapping, шарды, replication, cluster health",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "ILM (Index Lifecycle Management): hot → warm → cold → delete",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Loki: label-based подход, LogQL, Promtail agent config",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Grafana + Loki: единый UI для метрик и логов, correlations",
+    "level": "🟡 Middle"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 4 — Cloud + Monitoring + Security",
+  "section": "🔒 Security Hardening",
+  "topics": [
+   {
+    "title": "SSH hardening: PasswordAuthentication no, PermitRootLogin no, Port, AllowUsers",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "fail2ban: установка, jail.local, кастомные правила для SSH",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "Firewall production: nftables/iptables — minimal open ports policy",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "TLS: Let's Encrypt + certbot, auto-renewal systemd timer",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "CIS Benchmarks: Linux CIS Benchmark — ключевые пункты",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "SELinux: modes (enforcing/permissive/disabled), contexts, troubleshoot",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "AppArmor: profiles, aa-status, aa-genprof",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Auditd: audit.rules, ausearch, aureport",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "HashiCorp Vault: secrets engine, PKI, dynamic credentials, policies",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "SAST: semgrep, bandit (Python), gosec (Go) в pipeline",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Container security: Seccomp, AppArmor profiles для Docker/K8s",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Zero Trust: mTLS, сетевая сегментация, identity-based access",
+    "level": "🔴 Senior"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 5 — SRE Practices",
+  "section": "📐 SLO / SLI / SLA / Error Budget",
+  "topics": [
+   {
+    "title": "SLI: что измеряем — availability, latency p50/p95/p99, error rate",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "SLO: внутренние цели — 99.9% = 8.7 ч/год downtime, 99.99% = 52 мин",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "SLA: внешние обязательства с штрафами/кредитами при нарушении",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Error budget: расчёт = 1 - SLO, потребление, freeze при исчерпании",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "RED метод: Rate (RPS), Errors (error rate), Duration (latency)",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "USE метод: Utilization, Saturation, Errors для ресурсов",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "SLO tracking в Prometheus: recording rules + Grafana dashboard",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "SLO-driven development: связь error budget с решением о деплое",
+    "level": "🔴 Senior"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 5 — SRE Practices",
+  "section": "🚨 Incident Management",
+  "topics": [
+   {
+    "title": "Severity levels: P0/P1/P2/P3 — критерии, SLA по реакции",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Роли: Incident Commander, Communications Lead, Subject Matter Expert",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Runbook: структура — симптомы, диагностика, mitigation, эскалация",
+    "level": "🟢 Junior"
+   },
+   {
+    "title": "On-call: ротации, escalation policy, PagerDuty/Opsgenie настройка",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Blameless postmortem: timeline, contributing factors, action items",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Root cause analysis: 5 Why, fishbone (Ishikawa) diagram",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Alert tuning: убираем noise, делаем alerts actionable",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Проведение major incidents: координация кросс-командных P0",
+    "level": "🔴 Senior"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 5 — SRE Practices",
+  "section": "💣 Chaos Engineering",
+  "topics": [
+   {
+    "title": "Принципы: гипотеза, steady state, blast radius, observability first",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Litmus Chaos: установка, ChaosExperiment, ChaosEngine в Kubernetes",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Gremlin: типы атак — network delay, packet loss, CPU/memory stress",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Типы экспериментов: pod kill, node shutdown, disk fill, network partition",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Game Days: планирование учений, сценарии, debriefing",
+    "level": "🔴 Senior"
+   },
+   {
+    "title": "Chaos в production: когда оправдано, контроль blast radius",
+    "level": "🔴 Senior"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 5 — SRE Practices",
+  "section": "📈 Performance & Capacity",
+  "topics": [
+   {
+    "title": "Load testing: k6 (JS скрипты), Locust (Python), wrk / hey",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Интерпретация результатов: p50/p95/p99 latency, throughput, errors",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Профилирование: CPU flamegraph (perf, py-spy), memory leak поиск",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Auto-scaling: HPA, VPA, KEDA, Cluster Autoscaler — когда что",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Capacity planning: прогнозирование роста, headroom planning",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "sysctl tuning: net.core, net.ipv4, vm.swappiness для production",
+    "level": "🔴 Senior"
+   },
+   {
+    "title": "Distributed tracing: Jaeger, Tempo — spans, traces, instrumentation",
+    "level": "🔴 Senior"
+   }
+  ]
+ },
+ {
+  "phase": "Phase 5 — SRE Practices",
+  "section": "🛡️ Reliability Patterns",
+  "topics": [
+   {
+    "title": "Circuit Breaker: паттерн, Hystrix/Resilience4j, реализация",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Retry + exponential backoff + jitter: правильная реализация",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Bulkhead: изоляция ресурсов, thread pools, connection pools",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Graceful degradation и graceful shutdown: SIGTERM handling, preStop hook",
+    "level": "🟡 Middle"
+   },
+   {
+    "title": "Disaster Recovery: RTO/RPO цели, backup strategy, drill тесты",
+    "level": "🔴 Senior"
+   },
+   {
+    "title": "Multi-region: active-active vs active-passive, data replication lag",
+    "level": "🔴 Senior"
+   }
+  ]
+ }
+]

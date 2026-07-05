@@ -1,0 +1,163 @@
+{
+ "phase": "Phase 4 — Cloud + Monitoring + Security",
+ "section": "📋 Logging: ELK / Loki",
+ "topics": [
+  {
+   "title": "ELK архитектура: Elasticsearch, Logstash, Kibana — как взаимодействуют",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>ELK Stack</strong> — набор из трёх компонентов для централизованного сбора, обработки и визуализации логов. <strong>Elasticsearch</strong> — распределённая поисковая база данных, хранит логи в виде JSON-документов и индексов. <strong>Logstash</strong> — конвейер обработки данных: принимает логи, парсит и трансформирует их, отправляет в Elasticsearch. <strong>Kibana</strong> — веб-интерфейс для поиска, визуализации и построения дашбордов по данным из Elasticsearch.</p><p>Типичный поток данных: агенты на серверах (например, Filebeat) собирают логи → отправляют в Logstash для парсинга (grok-паттерны, извлечение полей) → Logstash пишет результат в Elasticsearch → Kibana строит запросы к Elasticsearch и рисует графики/таблицы.</p><p>Часто говорят про <strong>Elastic Stack</strong> — расширенную версию с Beats (Filebeat, Metricbeat, Packetbeat) для лёгкого сбора данных без тяжёлого парсинга на источнике.</p><table><tr><th>Компонент</th><th>Роль</th><th>Порт по умолчанию</th></tr><tr><td>Elasticsearch</td><td>хранение + поиск</td><td>9200</td></tr><tr><td>Logstash</td><td>обработка/парсинг</td><td>5044 (beats input)</td></tr><tr><td>Kibana</td><td>визуализация</td><td>5601</td></tr></table><p>Минимальный запуск через <code>docker-compose</code>:</p><pre><code>services:\n  elasticsearch:\n    image: elasticsearch:8.13.0\n    environment: [\"discovery.type=single-node\"]\n    ports: [\"9200:9200\"]\n  kibana:\n    image: kibana:8.13.0\n    ports: [\"5601:5601\"]\n    depends_on: [elasticsearch]</code></pre>"
+  },
+  {
+   "title": "Filebeat: конфиг, inputs (log, docker), output (Logstash / ES)",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Filebeat</strong> — легковесный агент из семейства Beats, устанавливается на каждый сервер/контейнер и следит за файлами логов, отправляя новые строки в Logstash или напрямую в Elasticsearch. В отличие от Logstash он практически не потребляет ресурсов, поэтому подходит для установки на прод-хосты в больших количествах.</p><p>Конфигурация описывается в <code>filebeat.yml</code> секциями <strong>inputs</strong> (что читать) и <strong>output</strong> (куда отправлять):</p><pre><code>filebeat.inputs:\n  - type: log\n    enabled: true\n    paths:\n      - /var/log/nginx/*.log\n    fields:\n      service: nginx\n\n  - type: docker\n    containers.ids: [\"*\"]\n    combine_partial: true\n\noutput.logstash:\n  hosts: [\"logstash:5044\"]\n\n# либо прямой output в Elasticsearch:\n# output.elasticsearch:\n#   hosts: [\"elasticsearch:9200\"]</code></pre><p>Тип <code>log</code> читает обычные текстовые файлы построчно и следит за ротацией (inode/offset), тип <code>docker</code> читает логи контейнеров через Docker API/логи движка. Filebeat поддерживает multiline-парсинг (склеивание стектрейсов в одно событие) через <code>multiline.pattern</code> и <code>multiline.negate</code>.</p><p>Запуск и проверка:</p><pre><code>filebeat test config\nfilebeat test output\nsystemctl enable --now filebeat</code></pre><p>Важно настраивать <strong>backpressure</strong> — Filebeat сам замедляет чтение, если Logstash/ES перегружены, что защищает от потери данных.</p>"
+  },
+  {
+   "title": "Logstash pipeline: input, filter (grok, mutate, date), output",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Logstash pipeline</strong> состоит из трёх последовательных блоков: <strong>input</strong> (откуда получать события), <strong>filter</strong> (как их трансформировать) и <strong>output</strong> (куда отправить результат). Конфиг пишется в <code>.conf</code> файле в формате, похожем на JSON/HOCON.</p><pre><code>input {\n  beats {\n    port => 5044\n  }\n}\n\nfilter {\n  grok {\n    match => { \"message\" => \"%{COMBINEDAPACHELOG}\" }\n  }\n  date {\n    match => [\"timestamp\", \"dd/MMM/yyyy:HH:mm:ss Z\"]\n    target => \"@timestamp\"\n  }\n  mutate {\n    remove_field => [\"message\"]\n    convert => { \"response\" => \"integer\" }\n  }\n}\n\noutput {\n  elasticsearch {\n    hosts => [\"http://elasticsearch:9200\"]\n    index => \"nginx-logs-%{+YYYY.MM.dd}\"\n  }\n}</code></pre><p>Плагины фильтров:</p><ul><li><strong>grok</strong> — извлекает структурированные поля из неструктурированного текста по regex-шаблонам</li><li><strong>mutate</strong> — переименование, удаление, конвертация типов полей</li><li><strong>date</strong> — парсит строку с датой и записывает в поле <code>@timestamp</code>, чтобы Kibana сортировала события правильно</li></ul><p>Проверка синтаксиса перед запуском: <code>bin/logstash -f pipeline.conf --config.test_and_exit</code>. Logstash — самое ресурсоёмкое звено стека (JVM), поэтому в высоконагруженных системах часть парсинга переносят на Filebeat processors или используют Elasticsearch Ingest Pipelines.</p>"
+  },
+  {
+   "title": "Grok patterns: парсинг nginx/apache/custom логов",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Grok</strong> — механизм сопоставления текста с шаблонами на основе именованных regex-групп. Он превращает строку лога в набор полей. Синтаксис: <code>%{PATTERN:field_name}</code>, где <code>PATTERN</code> — встроенный или пользовательский regex-макрос.</p><p>Пример строки лога Nginx:</p><pre><code>127.0.0.1 - - [05/Jul/2026:10:15:32 +0300] \"GET /api/v1/users HTTP/1.1\" 200 512</code></pre><p>Соответствующий grok-паттерн:</p><pre><code>%{IPORHOST:client_ip} - - \\[%{HTTPDATE:timestamp}\\] \"%{WORD:method} %{URIPATHPARAM:request} HTTP/%{NUMBER:http_version}\" %{NUMBER:status} %{NUMBER:bytes}</code></pre><p>Готовые макросы для Apache/Nginx уже включены в Logstash: <code>%{COMBINEDAPACHELOG}</code> покрывает стандартный combined-формат. Для кастомных логов приложения пишут свои паттерны, например для строки <code>2026-07-05 10:00:00 ERROR OrderService: timeout</code>:</p><pre><code>%{TIMESTAMP_ISO8601:log_time} %{LOGLEVEL:level} %{WORD:service}: %{GREEDYDATA:msg}</code></pre><p>Для отладки удобно использовать <strong>Kibana Grok Debugger</strong> (Dev Tools → Grok Debugger) — вводишь пример строки и паттерн, видишь результат разбора в реальном времени.</p><p>Частые ошибки: неэкранированные спецсимволы (<code>[</code>, <code>]</code>, <code>.</code>), использование <code>GREEDYDATA</code> слишком рано (съедает остаток строки), отсутствие обработки случая, когда grok не совпал — тогда в событие добавляется тег <code>_grokparsefailure</code>, который стоит мониторить.</p>"
+  },
+  {
+   "title": "Kibana: Discover, KQL запросы, создание Dashboard",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Kibana</strong> — веб-интерфейс поверх Elasticsearch. Раздел <strong>Discover</strong> — основной инструмент для просмотра и поиска сырых логов в реальном времени: выбираешь index pattern (или data view), задаёшь временной диапазон и пишешь запрос на <strong>KQL</strong> (Kibana Query Language).</p><p>Примеры KQL-запросов:</p><pre><code>status: 500\nstatus >= 400 and status < 500\nservice: \"nginx\" and message: *timeout*\nnot status: 200</code></pre><p>KQL проще Lucene-синтаксиса и хорошо подсказывает поля автодополнением. Для сложных агрегаций используется Lucene или прямые DSL-запросы через Dev Tools.</p><p>Для построения <strong>Dashboard</strong>:</p><ul><li>создаётся <strong>Data View</strong>, указывающий на индекс/шаблон индексов (например <code>nginx-logs-*</code>)</li><li>в разделе <strong>Visualize</strong> создаются панели: line chart по времени, pie chart по статус-кодам, data table по топ-URL</li><li>панели собираются в единый <strong>Dashboard</strong> с фильтрами и общим временным диапазоном</li></ul><p>Полезные фичи: <strong>Saved Searches</strong> для повторяющихся запросов, <strong>Alerting</strong> для срабатывания при превышении порога (например, количество 5xx > N за 5 минут), <strong>Lens</strong> — упрощённый drag-and-drop конструктор визуализаций.</p>"
+  },
+  {
+   "title": "Elasticsearch: индексы, mapping, шарды, replication, cluster health",
+   "level": "🟡 Middle",
+   "explanation": "<p>В Elasticsearch данные хранятся в <strong>индексах</strong> — логических контейнерах документов (аналог таблицы в СУБД). Каждый индекс делится на <strong>шарды</strong> (shards) — физические части, распределённые по нодам кластера для горизонтального масштабирования и параллелизации поиска. У каждого primary-шарда может быть <strong>replica</strong> — копия для отказоустойчивости и балансировки чтения.</p><p><strong>Mapping</strong> определяет схему полей документа: типы данных (<code>text</code>, <code>keyword</code>, <code>date</code>, <code>long</code>), анализаторы для полнотекстового поиска.</p><pre><code>PUT /logs-app-2026.07.05\n{\n  \"settings\": {\n    \"number_of_shards\": 3,\n    \"number_of_replicas\": 1\n  },\n  \"mappings\": {\n    \"properties\": {\n      \"@timestamp\": { \"type\": \"date\" },\n      \"level\":      { \"type\": \"keyword\" },\n      \"message\":    { \"type\": \"text\" },\n      \"status\":     { \"type\": \"integer\" }\n    }\n  }\n}</code></pre><p>Разница <code>keyword</code> vs <code>text</code>: <code>keyword</code> хранится как есть для точного совпадения и агрегаций (<code>terms</code>), <code>text</code> токенизируется для полнотекстового поиска.</p><p>Проверка состояния кластера:</p><pre><code>GET _cluster/health\nGET _cat/shards?v\nGET _cat/indices?v</code></pre><p>Статусы кластера: <strong>green</strong> (все шарды и реплики доступны), <strong>yellow</strong> (primary доступны, реплики недоступны — например одна нода упала), <strong>red</strong> (есть недоступные primary-шарды — потеря данных или недоступность части индекса).</p>"
+  },
+  {
+   "title": "ILM (Index Lifecycle Management): hot → warm → cold → delete",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>ILM</strong> — механизм Elasticsearch для автоматического управления жизненным циклом индексов логов, чтобы не хранить вечно горячие дорогие данные и не платить за диски, которые редко читаются. Индекс проходит через фазы:</p><ul><li><strong>hot</strong> — активная запись, быстрые SSD, максимум ресурсов</li><li><strong>warm</strong> — запись прекращена, редкие чтения, можно уменьшить количество реплик</li><li><strong>cold</strong> — архивные данные, дешёвое медленное хранилище, доступ read-only</li><li><strong>delete</strong> — индекс удаляется по достижении возраста retention-политики</li></ul><p>Пример политики: логи горячие 7 дней, потом warm до 30 дней, потом cold до 90 дней, затем удаление.</p><pre><code>PUT _ilm/policy/logs-policy\n{\n  \"policy\": {\n    \"phases\": {\n      \"hot\":   { \"actions\": { \"rollover\": { \"max_age\": \"1d\", \"max_size\": \"20gb\" } } },\n      \"warm\":  { \"min_age\": \"7d\",  \"actions\": { \"shrink\": { \"number_of_shards\": 1 } } },\n      \"cold\":  { \"min_age\": \"30d\", \"actions\": { \"freeze\": {} } },\n      \"delete\": { \"min_age\": \"90d\", \"actions\": { \"delete\": {} } }\n    }\n  }\n}</code></pre><p>ILM обычно связывается с <strong>index template</strong>, использующим паттерн <code>logs-*</code> и alias для ротации (<code>rollover</code>) — новый индекс создаётся автоматически при достижении лимита размера/возраста, а приложение продолжает писать в постоянный alias, не заботясь об именах реальных индексов.</p>"
+  },
+  {
+   "title": "Loki: label-based подход, LogQL, Promtail agent config",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Loki</strong> — система логирования от Grafana Labs, спроектированная как «Prometheus для логов». Ключевое отличие от Elasticsearch: Loki <strong>не индексирует полный текст</strong> сообщений, а индексирует только <strong>метки (labels)</strong> — например <code>job</code>, <code>namespace</code>, <code>pod</code>. Сам текст лога хранится сжатым в объектном хранилище (S3, GCS, локальный диск), что делает Loki значительно дешевле и легче в эксплуатации, чем Elasticsearch.</p><p><strong>Promtail</strong> — агент-коллектор (аналог Filebeat), собирает логи и присваивает им метки на основе конфигурации:</p><pre><code>scrape_configs:\n  - job_name: system\n    static_configs:\n      - targets: [localhost]\n        labels:\n          job: varlogs\n          __path__: /var/log/*.log\n\n  - job_name: kubernetes-pods\n    kubernetes_sd_configs:\n      - role: pod\n    relabel_configs:\n      - source_labels: [__meta_kubernetes_pod_label_app]\n        target_label: app</code></pre><p>Запросы пишутся на <strong>LogQL</strong> — синтаксис похож на PromQL, но начинается с фильтра по label-селектору, затем идёт line-фильтр:</p><pre><code>{app=\"payment-service\", namespace=\"prod\"} |= \"timeout\"\nsum(rate({app=\"nginx\"} |= \"error\" [5m])) by (pod)</code></pre><p>Loki хорошо подходит для Kubernetes-окружений, где логи естественно размечены лейблами namespace/pod/container, и не требует держать дорогой полнотекстовый индекс, если основной сценарий — «найти по контексту и времени», а не произвольный full-text поиск по всему объёму.</p>"
+  },
+  {
+   "title": "Grafana + Loki: единый UI для метрик и логов, correlations",
+   "level": "🟡 Middle",
+   "explanation": "<p>Связка <strong>Grafana + Loki</strong> позволяет смотреть метрики (из Prometheus) и логи (из Loki) в одном интерфейсе, переключаясь между ними без смены инструмента — в отличие от классического стека, где Kibana и Grafana существуют раздельно.</p><p>Подключение Loki как datasource в Grafana (<code>datasource.yml</code>):</p><pre><code>apiVersion: 1\ndatasources:\n  - name: Loki\n    type: loki\n    url: http://loki:3100\n    jsonData:\n      derivedFields:\n        - datasourceUid: tempo-uid\n          matcherRegex: \"trace_id=(\\\\w+)\"\n          name: TraceID\n          url: \"$${__value.raw}\"</code></pre><p>Ключевая фича — <strong>correlations / derived fields</strong>: если в логе есть <code>trace_id</code>, Grafana может извлечь его regex'ом и построить ссылку на соответствующий трейс в Jaeger/Tempo. Это даёт цепочку: увидел скачок латентности на дашборде метрик → перешёл в панель логов за тот же период (Explore, синхронизированный time range) → кликнул по trace_id → открыл детальный трейс запроса.</p><p>В панели <strong>Explore</strong> можно split-view: слева PromQL-запрос по метрикам, справа LogQL-запрос по логам с тем же временным диапазоном — это ускоряет troubleshooting инцидентов, так как не нужно переключаться между разными продуктами и учётными записями, как в случае ELK + отдельная система метрик.</p>"
+  }
+ ],
+ "quiz": [
+  {
+   "q": "Какой компонент классического ELK-стека отвечает за хранение и полнотекстовый поиск логов?",
+   "options": [
+    "Logstash",
+    "Kibana",
+    "Elasticsearch",
+    "Filebeat"
+   ],
+   "answer": 2,
+   "explain": "Elasticsearch — распределённая поисковая база, в которой хранятся индексированные документы логов; Logstash обрабатывает, Kibana визуализирует, Filebeat собирает."
+  },
+  {
+   "q": "Чем Filebeat отличается от Logstash в архитектуре сбора логов?",
+   "options": [
+    "Filebeat заменяет Elasticsearch",
+    "Filebeat — легковесный агент для сбора, Logstash — более тяжёлый обрабатывающий конвейер",
+    "Filebeat может работать только с Docker",
+    "Между ними нет функциональной разницы"
+   ],
+   "answer": 1,
+   "explain": "Filebeat — компактный агент на базе Beats, устанавливается массово на серверы и почти не потребляет ресурсов, тогда как Logstash — JVM-процесс с более тяжёлыми возможностями трансформации данных (grok, mutate и т.д.)."
+  },
+  {
+   "q": "Какой grok-макрос покрывает стандартный формат логов Apache/Nginx combined?",
+   "options": [
+    "%{GREEDYDATA}",
+    "%{COMBINEDAPACHELOG}",
+    "%{TIMESTAMP_ISO8601}",
+    "%{LOGLEVEL}"
+   ],
+   "answer": 1,
+   "explain": "%{COMBINEDAPACHELOG} — встроенный в Logstash паттерн, разбирающий стандартную combined-строку лога Apache/Nginx на поля: IP, метод, путь, статус и т.д."
+  },
+  {
+   "q": "На каком языке запросов строится поиск логов в разделе Discover в Kibana?",
+   "options": [
+    "LogQL",
+    "PromQL",
+    "KQL",
+    "HCL"
+   ],
+   "answer": 2,
+   "explain": "KQL (Kibana Query Language) — упрощённый синтаксис поиска в Kibana, например status: 500. LogQL используется в Loki, PromQL — в Prometheus."
+  },
+  {
+   "q": "Что произойдёт с индексом Elasticsearch, если primary-шард недоступен, но все реплики на месте?",
+   "options": [
+    "Кластер получит статус red",
+    "Кластер получит статус yellow",
+    "Кластер получит статус green",
+    "Индекс автоматически удалится"
+   ],
+   "answer": 0,
+   "explain": "Статус red означает, что хотя бы один primary-шард недоступен — это потенциальная потеря данных для этого шарда. Status yellow — наоборот, primary доступны, но недоступны реплики."
+  },
+  {
+   "q": "Какая фаза ILM (Index Lifecycle Management) отвечает за постепенное удаление устаревших индексов логов?",
+   "options": [
+    "hot",
+    "warm",
+    "cold",
+    "delete"
+   ],
+   "answer": 3,
+   "explain": "Фаза delete в ILM-политике автоматически удаляет индекс по достижении заданного возраста (min_age), завершая жизненный цикл после hot → warm → cold."
+  },
+  {
+   "q": "Что принципиально отличает Loki от Elasticsearch в подходе к хранению логов?",
+   "options": [
+    "Loki индексирует полный текст сообщений, как Elasticsearch",
+    "Loki индексирует только метки (labels), а не содержимое сообщений",
+    "Loki не поддерживает работу с Kubernetes",
+    "Loki хранит логи только в памяти"
+   ],
+   "answer": 1,
+   "explain": "Loki индексирует лишь набор label-значений (job, namespace, pod и т.д.), а сами тексты логов хранит сжатыми в объектном хранилище, что делает его существенно легче Elasticsearch по нагрузке на индексацию."
+  },
+  {
+   "q": "Какой агент используется для сбора и разметки логов метками (labels) перед отправкой в Loki?",
+   "options": [
+    "Filebeat",
+    "Promtail",
+    "Logstash",
+    "Metricbeat"
+   ],
+   "answer": 1,
+   "explain": "Promtail — официальный агент Grafana Labs для Loki: он читает логи и присваивает им метки (labels) на основе scrape_configs, аналогично тому, как Filebeat работает с ELK."
+  },
+  {
+   "q": "Пример запроса `{app=\"nginx\"} |= \"error\"` относится к какому языку запросов?",
+   "options": [
+    "PromQL",
+    "LogQL",
+    "KQL",
+    "DSL Elasticsearch"
+   ],
+   "answer": 1,
+   "explain": "Это синтаксис LogQL — языка запросов Loki: сначала идёт селектор по меткам в фигурных скобках, затем line-фильтр (|=  означает 'содержит подстроку')."
+  },
+  {
+   "q": "Какую практическую возможность даёт связка Grafana + Loki + Tempo через derived fields?",
+   "options": [
+    "Автоматическое масштабирование Kubernetes при росте логов",
+    "Переход по trace_id из строки лога прямо в детальный трейс запроса",
+    "Автоматическое удаление старых логов без ILM",
+    "Замену Prometheus на Loki для сбора метрик"
+   ],
+   "answer": 1,
+   "explain": "Derived fields в datasource Loki позволяют regex-ом извлечь trace_id из текста лога и построить кликабельную ссылку на соответствующий трейс в Tempo/Jaeger, связывая логи и трейсинг в одном интерфейсе Grafana."
+  }
+ ]
+}

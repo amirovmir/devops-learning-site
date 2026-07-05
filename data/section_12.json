@@ -1,0 +1,178 @@
+{
+ "phase": "Phase 4 — Cloud + Monitoring + Security",
+ "section": "🔒 Security Hardening",
+ "topics": [
+  {
+   "title": "SSH hardening: PasswordAuthentication no, PermitRootLogin no, Port, AllowUsers",
+   "level": "🟢 Junior",
+   "explanation": "<p>SSH — главная точка входа на сервер, и по умолчанию она настроена небезопасно. Цель hardening'а — исключить брутфорс паролей и ограничить круг тех, кто может подключаться.</p><p>Основные директивы редактируются в <code>/etc/ssh/sshd_config</code>:</p><pre><code>PasswordAuthentication no\nPermitRootLogin no\nPort 2222\nAllowUsers deploy admin\nPubkeyAuthentication yes\nMaxAuthTries 3\nClientAliveInterval 300\nClientAliveCountMax 2</code></pre><ul><li><strong>PasswordAuthentication no</strong> — вход только по ключу, брутфорс пароля становится бессмысленным.</li><li><strong>PermitRootLogin no</strong> — root заходит через <code>sudo</code> под обычным пользователем, а не напрямую.</li><li><strong>Port</strong> — смена порта с 22 не защита, а лишь снижение шума от массовых сканеров.</li><li><strong>AllowUsers</strong> — явный whitelist аккаунтов, которым разрешён SSH-доступ.</li></ul><p>После изменений обязательно проверить синтаксис перед перезапуском:</p><pre><code>sshd -t && systemctl restart sshd</code></pre><table><tr><th>Параметр</th><th>Риск без него</th></tr><tr><td>PasswordAuthentication no</td><td>Брутфорс паролей</td></tr><tr><td>PermitRootLogin no</td><td>Компрометация полной root-сессии</td></tr><tr><td>AllowUsers</td><td>Доступ любого локального аккаунта</td></tr></table><p>Важно: перед отключением паролей убедиться, что ключ уже добавлен в <code>~/.ssh/authorized_keys</code> — иначе можно потерять доступ к серверу.</p>"
+  },
+  {
+   "title": "fail2ban: установка, jail.local, кастомные правила для SSH",
+   "level": "🟢 Junior",
+   "explanation": "<p>fail2ban анализирует логи сервисов и временно банит IP-адреса после серии неудачных попыток входа — это защита от брутфорса, дополняющая SSH hardening.</p><p>Установка на Debian/Ubuntu:</p><pre><code>apt install fail2ban\ncp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local</code></pre><p>Конфигурацию правят именно в <code>jail.local</code>, а не в <code>jail.conf</code>, чтобы не потерять изменения при обновлении пакета. Пример jail для SSH:</p><pre><code>[sshd]\nenabled = true\nport = 2222\nfilter = sshd\nlogpath = /var/log/auth.log\nmaxretry = 3\nfindtime = 600\nbantime = 3600\naction = %(action_mflink)s</code></pre><ul><li><strong>maxretry</strong> — количество попыток до блокировки.</li><li><strong>findtime</strong> — окно, в котором считаются попытки.</li><li><strong>bantime</strong> — длительность бана в секундах (можно <code>-1</code> для постоянного).</li></ul><p>Кастомный фильтр можно написать в <code>/etc/fail2ban/filter.d/myapp.conf</code> с regex под свои логи, например для nginx с попытками brute-force на форму логина.</p><p>Проверка статуса и списка забаненных:</p><pre><code>fail2ban-client status sshd\nfail2ban-client set sshd unbanip 1.2.3.4</code></pre><p>fail2ban работает поверх iptables/nftables, динамически добавляя и убирая правила блокировки.</p>"
+  },
+  {
+   "title": "Firewall production: nftables/iptables — minimal open ports policy",
+   "level": "🟢 Junior",
+   "explanation": "<p>Принцип production firewall — <strong>default deny</strong>: всё запрещено, кроме явно разрешённого. Это минимизирует поверхность атаки.</p><p>Пример на nftables:</p><pre><code>table inet filter {\n  chain input {\n    type filter hook input priority 0; policy drop;\n    ct state established,related accept\n    iif lo accept\n    tcp dport 2222 accept\n    tcp dport { 80, 443 } accept\n    ip protocol icmp accept\n  }\n}</code></pre><p>Аналог на iptables:</p><pre><code>iptables -P INPUT DROP\niptables -A INPUT -i lo -j ACCEPT\niptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT\niptables -A INPUT -p tcp --dport 2222 -j ACCEPT\niptables -A INPUT -p tcp --dport 443 -j ACCEPT</code></pre><ul><li><strong>policy drop</strong> — базовое правило: всё, что не разрешено — блокируется.</li><li>Разрешаются только реально нужные порты: SSH, HTTP/HTTPS, мониторинг.</li><li><strong>ct state established,related</strong> — обязательно, иначе ответы на исходящие запросы будут блокироваться.</li></ul><table><tr><th>Порт</th><th>Назначение</th></tr><tr><td>2222</td><td>SSH (нестандартный)</td></tr><tr><td>443</td><td>HTTPS</td></tr><tr><td>9100</td><td>Node Exporter (только из VPN-подсети)</td></tr></table><p>Правила должны сохраняться после ребута (<code>nft list ruleset > /etc/nftables.conf</code>) и применяться при старте через systemd unit.</p>"
+  },
+  {
+   "title": "TLS: Let's Encrypt + certbot, auto-renewal systemd timer",
+   "level": "🟢 Junior",
+   "explanation": "<p>TLS-сертификаты защищают трафик от прослушивания и подмены. Let's Encrypt выдаёт бесплатные сертификаты сроком на 90 дней, поэтому обязательно нужна автоматизация продления.</p><p>Получение сертификата с nginx-плагином:</p><pre><code>apt install certbot python3-certbot-nginx\ncertbot --nginx -d example.com -d www.example.com</code></pre><p>Certbot автоматически правит конфиг nginx, добавляя <code>ssl_certificate</code> и редирект с 80 на 443. Проверка автопродления:</p><pre><code>certbot renew --dry-run</code></pre><p>Начиная с современных версий certbot сам ставит systemd timer, но полезно понимать, как он выглядит:</p><pre><code># /etc/systemd/system/certbot-renew.timer\n[Unit]\nDescription=Certbot renewal timer\n\n[Timer]\nOnCalendar=*-*-* 00,12:00:00\nRandomizedDelaySec=3600\nPersistent=true\n\n[Install]\nWantedBy=timers.target</code></pre><ul><li>Renewal запускается два раза в день — certbot продлевает сертификат только если осталось меньше 30 дней.</li><li><strong>RandomizedDelaySec</strong> размывает нагрузку на серверы Let's Encrypt.</li></ul><p>Проверить статус таймера:</p><pre><code>systemctl list-timers | grep certbot</code></pre><p>Для production рекомендуется настроить hook, который перезагружает nginx после продления: <code>--deploy-hook \"systemctl reload nginx\"</code>.</p>"
+  },
+  {
+   "title": "CIS Benchmarks: Linux CIS Benchmark — ключевые пункты",
+   "level": "🟡 Middle",
+   "explanation": "<p>CIS Benchmark — набор общепризнанных рекомендаций по безопасной конфигурации ОС, издаваемый Center for Internet Security. Для Linux он охватывает файловую систему, сервисы, сеть, аудит и права доступа.</p><p>Ключевые пункты, которые проверяются чаще всего:</p><ul><li>Отдельные точки монтирования для <code>/tmp</code>, <code>/var</code>, <code>/home</code> с флагами <code>noexec</code>, <code>nosuid</code>, <code>nodev</code>.</li><li>Отключение неиспользуемых файловых систем и модулей ядра (cramfs, freevxfs).</li><li>Настройка <code>umask</code> по умолчанию (027 вместо 022).</li><li>Обязательный пароль на GRUB, отключение ctrl-alt-del.</li><li>Настройка политики паролей через <code>/etc/security/pwquality.conf</code>.</li><li>Включённый auditd и логирование ключевых событий.</li></ul><p>Пример правила fstab с hardening-флагами:</p><pre><code>/dev/sdb1  /tmp  ext4  defaults,nodev,nosuid,noexec  0 2</code></pre><p>Для автоматической проверки соответствия используется <strong>OpenSCAP</strong> или CIS-CAT:</p><pre><code>oscap xccdf eval --profile cis \\\n  --results results.xml \\\n  /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml</code></pre><table><tr><th>Уровень</th><th>Описание</th></tr><tr><td>Level 1</td><td>Базовый hardening, минимум влияния на функциональность</td></tr><tr><td>Level 2</td><td>Строгий hardening для высокочувствительных сред</td></tr></table><p>CIS Benchmark часто требуется для соответствия PCI DSS, SOC 2 и внутренним security-политикам компании.</p>"
+  },
+  {
+   "title": "SELinux: modes (enforcing/permissive/disabled), contexts, troubleshoot",
+   "level": "🟡 Middle",
+   "explanation": "<p>SELinux — система мандатного контроля доступа (MAC) в ядре Linux, дополняющая обычные права unix. Она ограничивает процессы даже если они скомпрометированы через уязвимость.</p><p>Три режима работы:</p><ul><li><strong>enforcing</strong> — правила применяются, нарушения блокируются и логируются.</li><li><strong>permissive</strong> — нарушения только логируются, ничего не блокируется (удобно для отладки).</li><li><strong>disabled</strong> — SELinux полностью выключен.</li></ul><p>Проверка и переключение режима:</p><pre><code>getenforce\nsetenforce 0        # временно permissive\nsestatus</code></pre><p>Постоянная настройка в <code>/etc/selinux/config</code>:</p><pre><code>SELINUX=enforcing\nSELINUXTYPE=targeted</code></pre><p>Каждому файлу и процессу присваивается контекст вида <code>user:role:type:level</code>:</p><pre><code>ls -Z /var/www/html\nchcon -t httpd_sys_content_t /var/www/html/index.html\nrestorecon -Rv /var/www/html</code></pre><p>Частая проблема: nginx не может писать в кастомную директорию из-за неверного контекста. Диагностика через <code>audit2why</code>:</p><pre><code>ausearch -m avc -ts recent | audit2why</code></pre><p>Типовое решение — не отключать SELinux, а сгенерировать разрешающий модуль:</p><pre><code>ausearch -m avc -ts recent | audit2allow -M mypolicy\nsemodule -i mypolicy.pp</code></pre><p>Отключение SELinux — плохая практика в production; правильный путь — научиться диагностировать и точечно разрешать нужные операции.</p>"
+  },
+  {
+   "title": "AppArmor: profiles, aa-status, aa-genprof",
+   "level": "🟡 Middle",
+   "explanation": "<p>AppArmor — альтернатива SELinux, используемая по умолчанию в Ubuntu и Debian. В отличие от SELinux, он привязывается к путям файлов, а не к меткам контекста, что делает его проще для понимания.</p><p>Профили хранятся в <code>/etc/apparmor.d/</code> и описывают, что конкретной программе разрешено делать:</p><pre><code>/usr/sbin/nginx {\n  #include &lt;abstractions/base&gt;\n  network inet stream,\n  /var/www/** r,\n  /var/log/nginx/*.log w,\n  /etc/nginx/** r,\n  deny /home/** rwx,\n}</code></pre><p>Просмотр статуса всех профилей:</p><pre><code>aa-status</code></pre><p>Профиль может работать в двух режимах: <strong>enforce</strong> (блокирует нарушения) и <strong>complain</strong> (только логирует):</p><pre><code>aa-enforce /etc/apparmor.d/usr.sbin.nginx\naa-complain /etc/apparmor.d/usr.sbin.nginx</code></pre><p>Для создания нового профиля с нуля используется интерактивный <code>aa-genprof</code>: он запускает приложение, наблюдает за его действиями через логи ядра и предлагает разрешить или запретить каждую операцию.</p><pre><code>aa-genprof /usr/local/bin/myapp</code></pre><ul><li>После генерации профиль дорабатывают вручную под реальные сценарии использования.</li><li>Docker и Kubernetes используют AppArmor-профили для дополнительной изоляции контейнеров поверх обычных Linux namespaces.</li></ul><p>Логи нарушений смотрят в <code>dmesg</code> или <code>/var/log/syslog</code> с тегом <code>apparmor=\"DENIED\"</code>.</p>"
+  },
+  {
+   "title": "Auditd: audit.rules, ausearch, aureport",
+   "level": "🟡 Middle",
+   "explanation": "<p>auditd — подсистема аудита ядра Linux, записывающая детальный журнал системных событий: доступ к файлам, вызовы syscall, изменения пользователей и прав. Это ключевой инструмент для расследования инцидентов и соответствия compliance-требованиям (PCI DSS, CIS).</p><p>Правила задаются в <code>/etc/audit/rules.d/audit.rules</code>:</p><pre><code># Отслеживать изменения файла паролей\n-w /etc/passwd -p wa -k identity\n-w /etc/shadow -p wa -k identity\n\n# Отслеживать использование sudo\n-w /etc/sudoers -p wa -k privilege_escalation\n\n# Отслеживать все успешные и неуспешные попытки chmod\n-a always,exit -F arch=b64 -S chmod -k perm_change</code></pre><p>Флаги: <strong>-p</strong> — тип доступа (r/w/x/a), <strong>-k</strong> — ключ для последующего поиска.</p><p>Применение правил и перезапуск:</p><pre><code>augenrules --load\nsystemctl restart auditd</code></pre><p>Поиск событий по ключу:</p><pre><code>ausearch -k identity --start today\nausearch -ui 0 -k privilege_escalation</code></pre><p>Сводный отчёт по всей системе:</p><pre><code>aureport --auth --summary\naureport -f --summary</code></pre><table><tr><th>Команда</th><th>Назначение</th></tr><tr><td>ausearch</td><td>Детальный поиск конкретных событий</td></tr><tr><td>aureport</td><td>Агрегированные отчёты (кто, когда, что)</td></tr></table><p>auditd часто интегрируют с SIEM-системами, отправляя логи через <code>audisp</code> в syslog или Elasticsearch для централизованного анализа.</p>"
+  },
+  {
+   "title": "HashiCorp Vault: secrets engine, PKI, dynamic credentials, policies",
+   "level": "🟡 Middle",
+   "explanation": "<p>Vault решает проблему хранения секретов (паролей, API-ключей, сертификатов) вне кода и конфигов, с централизованным контролем доступа и аудитом.</p><p>Secrets engines — модули для разных типов секретов:</p><ul><li><strong>kv</strong> — статичное key-value хранилище.</li><li><strong>database</strong> — динамическая генерация учётных данных БД с TTL.</li><li><strong>pki</strong> — выпуск и ротация TLS-сертификатов.</li><li><strong>transit</strong> — шифрование данных без хранения ключей у клиента.</li></ul><p>Пример включения kv и записи секрета:</p><pre><code>vault secrets enable -path=secret kv-v2\nvault kv put secret/app/db password=s3cr3t</code></pre><p>Динамические credentials для PostgreSQL — Vault сам создаёт временного пользователя БД с TTL:</p><pre><code>vault secrets enable database\nvault write database/config/mydb \\\n  plugin_name=postgresql-database-plugin \\\n  connection_url=\"postgresql://{{username}}:{{password}}@db:5432/app\" \\\n  allowed_roles=\"readonly\"\n\nvault write database/roles/readonly \\\n  db_name=mydb \\\n  creation_statements=\"CREATE ROLE \\\"{{name}}\\\" LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';\" \\\n  default_ttl=\"1h\"</code></pre><p>Policies ограничивают доступ по принципу минимальных привилегий:</p><pre><code>path \"secret/data/app/*\" {\n  capabilities = [\"read\"]\n}</code></pre><p>Приложение получает секрет через AppRole-аутентификацию, а не статичный токен, что снижает риск утечки долгоживущих credentials.</p>"
+  },
+  {
+   "title": "SAST: semgrep, bandit (Python), gosec (Go) в pipeline",
+   "level": "🟡 Middle",
+   "explanation": "<p>SAST (Static Application Security Testing) — анализ исходного кода на уязвимости без его выполнения, встраиваемый прямо в CI pipeline, чтобы ловить проблемы до merge.</p><p><strong>bandit</strong> для Python ищет опасные паттерны: eval, subprocess с shell=True, hardcoded пароли:</p><pre><code>pip install bandit\nbandit -r ./src -f json -o report.json</code></pre><p><strong>gosec</strong> для Go находит SQL-инъекции, небезопасное использование crypto/rand вместо math/rand:</p><pre><code>gosec -fmt=json -out=report.json ./...</code></pre><p><strong>semgrep</strong> — универсальный движок с правилами для десятков языков, легко пишется кастомное правило:</p><pre><code>rules:\n  - id: no-hardcoded-secret\n    pattern: password = \"...\"\n    message: \"Hardcoded password detected\"\n    severity: ERROR\n    languages: [python]</code></pre><p>Пример шага в GitLab CI:</p><pre><code>sast:\n  stage: test\n  script:\n    - semgrep --config=auto --error ./src\n  allow_failure: false</code></pre><table><tr><th>Инструмент</th><th>Язык</th></tr><tr><td>bandit</td><td>Python</td></tr><tr><td>gosec</td><td>Go</td></tr><tr><td>semgrep</td><td>Мультиязычный</td></tr></table><p><strong>allow_failure: false</strong> превращает найденные уязвимости в блокирующий gate — merge request не проходит, пока проблема не устранена или не помечена как false positive.</p>"
+  },
+  {
+   "title": "Container security: Seccomp, AppArmor profiles для Docker/K8s",
+   "level": "🟡 Middle",
+   "explanation": "<p>Контейнеры делят ядро с хостом, поэтому изоляция на уровне syscall и файловой системы критична для снижения риска container breakout.</p><p><strong>Seccomp</strong> ограничивает набор системных вызовов, доступных процессу в контейнере. Docker по умолчанию применяет профиль, блокирующий ~44 опасных syscall (например, <code>mount</code>, <code>reboot</code>):</p><pre><code>docker run --security-opt seccomp=default.json myapp</code></pre><p>Кастомный профиль в JSON описывает whitelist разрешённых вызовов:</p><pre><code>{\n  \"defaultAction\": \"SCMP_ACT_ERRNO\",\n  \"syscalls\": [\n    {\"names\": [\"read\",\"write\",\"open\",\"close\",\"exit\"],\n     \"action\": \"SCMP_ACT_ALLOW\"}\n  ]\n}</code></pre><p>В Kubernetes seccomp-профиль задаётся через <code>securityContext</code>:</p><pre><code>securityContext:\n  seccompProfile:\n    type: Localhost\n    localhostProfile: profiles/audit.json\n  capabilities:\n    drop: [\"ALL\"]\n  readOnlyRootFilesystem: true\n  runAsNonRoot: true</code></pre><p>AppArmor-профиль для контейнера подключается похожим образом через аннотацию Pod:</p><pre><code>annotations:\n  container.apparmor.security.beta.kubernetes.io/myapp: localhost/k8s-apparmor-example</code></pre><ul><li><strong>drop: ALL capabilities</strong> — убирает лишние Linux capabilities (CAP_SYS_ADMIN и т.д.).</li><li><strong>readOnlyRootFilesystem</strong> — запрещает запись в файловую систему контейнера, кроме явных volume.</li></ul><p>Комбинация Seccomp + AppArmor + non-root + read-only FS формирует defense-in-depth для рабочих нагрузок в кластере.</p>"
+  },
+  {
+   "title": "Zero Trust: mTLS, сетевая сегментация, identity-based access",
+   "level": "🔴 Senior",
+   "explanation": "<p>Zero Trust — модель безопасности, отказывающаяся от понятия «доверенного периметра». Каждый запрос — снаружи или внутри сети — проверяется независимо, без неявного доверия по факту нахождения в внутренней сети.</p><p><strong>mTLS (mutual TLS)</strong> — обе стороны соединения предъявляют сертификаты, а не только сервер:</p><pre><code>server {\n  listen 443 ssl;\n  ssl_certificate     /etc/ssl/server.crt;\n  ssl_certificate_key /etc/ssl/server.key;\n  ssl_client_certificate /etc/ssl/ca.crt;\n  ssl_verify_client on;\n}</code></pre><p>В Kubernetes mTLS между сервисами обычно реализуется через service mesh (Istio, Linkerd) с автоматической ротацией сертификатов через встроенный CA — приложениям не нужно самим управлять ключами.</p><p><strong>Сетевая сегментация</strong> ограничивает, какие сервисы могут общаться друг с другом, через Network Policy:</p><pre><code>apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-frontend-to-backend\nspec:\n  podSelector:\n    matchLabels: {app: backend}\n  ingress:\n    - from:\n        - podSelector: {matchLabels: {app: frontend}}\n      ports: [{port: 8080}]</code></pre><p><strong>Identity-based access</strong> — доступ выдаётся на основе идентичности workload (SPIFFE/SPIRE, service account), а не IP-адреса, который легко подменить.</p><table><tr><th>Принцип</th><th>Реализация</th></tr><tr><td>Never trust, always verify</td><td>mTLS на каждом hop</td></tr><tr><td>Least privilege</td><td>RBAC + Network Policy</td></tr><tr><td>Assume breach</td><td>Микросегментация, blast radius минимален</td></tr></table><p>Zero Trust особенно важен в multi-tenant кластерах и облачных средах, где физический периметр сети больше не существует.</p>"
+  }
+ ],
+ "quiz": [
+  {
+   "q": "Какая директива sshd_config запрещает вход по паролю, оставляя только аутентификацию по ключу?",
+   "options": [
+    "PermitRootLogin no",
+    "PasswordAuthentication no",
+    "AllowUsers deploy",
+    "Port 2222"
+   ],
+   "answer": 1,
+   "explain": "PasswordAuthentication no отключает парольный вход, делая брутфорс паролей бессмысленным; вход остаётся возможен только по SSH-ключу."
+  },
+  {
+   "q": "В каком файле следует хранить кастомную конфигурацию fail2ban, чтобы не потерять её при обновлении пакета?",
+   "options": [
+    "jail.conf",
+    "jail.local",
+    "fail2ban.conf",
+    "/etc/fail2ban/default.conf"
+   ],
+   "answer": 1,
+   "explain": "jail.conf перезаписывается при обновлении пакета; кастомные правила пишут в jail.local, который имеет приоритет и не затрагивается обновлениями."
+  },
+  {
+   "q": "Какая базовая политика firewall соответствует принципу production hardening 'minimal open ports'?",
+   "options": [
+    "policy accept для INPUT",
+    "policy drop для INPUT с явным whitelist нужных портов",
+    "Отключить firewall совсем",
+    "Разрешить всё, логировать подозрительное"
+   ],
+   "answer": 1,
+   "explain": "Production-подход — default deny: базовая политика INPUT DROP, а разрешаются только явно необходимые порты (SSH, HTTP/HTTPS и т.п.)."
+  },
+  {
+   "q": "Почему для сертификатов Let's Encrypt обязательно настраивать автопродление через systemd timer?",
+   "options": [
+    "Сертификаты действуют бессрочно, но требуют ручной активации",
+    "Сертификаты Let's Encrypt действуют всего 90 дней",
+    "certbot требует ручного запуска каждый день",
+    "Автопродление нужно только для wildcard-сертификатов"
+   ],
+   "answer": 1,
+   "explain": "Сертификаты Let's Encrypt выдаются на 90 дней, поэтому без автоматического продления (systemd timer, запускающий certbot renew) сертификат истечёт и HTTPS перестанет работать."
+  },
+  {
+   "q": "Что проверяет CIS Benchmark для Linux в первую очередь среди перечисленного?",
+   "options": [
+    "Версию ядра Linux",
+    "Флаги монтирования отдельных точек (/tmp, /var) типа noexec, nosuid",
+    "Наличие GUI окружения",
+    "Количество установленных пакетов"
+   ],
+   "answer": 1,
+   "explain": "CIS Benchmark включает рекомендации по выделению отдельных точек монтирования с флагами noexec/nosuid/nodev для снижения риска выполнения произвольного кода."
+  },
+  {
+   "q": "Какой режим SELinux логирует нарушения политики, но не блокирует их — удобен для отладки перед включением enforcing?",
+   "options": [
+    "disabled",
+    "enforcing",
+    "permissive",
+    "audit"
+   ],
+   "answer": 2,
+   "explain": "permissive режим фиксирует все нарушения политики в логах (AVC denials), но не блокирует операции — это позволяет протестировать политику перед переключением в enforcing."
+  },
+  {
+   "q": "В отличие от SELinux, на что опирается AppArmor при определении разрешённых действий процесса?",
+   "options": [
+    "На метки безопасности (security context)",
+    "На пути к файлам (path-based)",
+    "На UID процесса",
+    "На сетевые namespace"
+   ],
+   "answer": 1,
+   "explain": "AppArmor использует path-based модель — профиль описывает разрешения через файловые пути, что проще для понимания по сравнению с label-based моделью SELinux."
+  },
+  {
+   "q": "Какая команда auditd используется для поиска конкретных событий по заданному ключу правила (-k)?",
+   "options": [
+    "aureport",
+    "ausearch",
+    "auditctl",
+    "augenrules"
+   ],
+   "answer": 1,
+   "explain": "ausearch выполняет детальный поиск событий аудита, в том числе по ключу -k, заданному в правиле audit.rules; aureport формирует агрегированные сводки."
+  },
+  {
+   "q": "Чем принципиально полезны dynamic credentials в HashiCorp Vault для базы данных?",
+   "options": [
+    "Пароль БД хранится в открытом виде в конфиге приложения",
+    "Vault генерирует временного пользователя БД с ограниченным TTL при каждом запросе",
+    "Пароль базы данных никогда не меняется",
+    "Приложение подключается к БД напрямую по IP без аутентификации"
+   ],
+   "answer": 1,
+   "explain": "Vault database secrets engine создаёт временные учётные данные с TTL для каждого запроса, что резко снижает риск долгоживущих утечек статичных паролей."
+  },
+  {
+   "q": "Какой принцип лежит в основе модели Zero Trust при организации доступа между сервисами?",
+   "options": [
+    "Доверие по умолчанию всем запросам из внутренней сети",
+    "Never trust, always verify — каждый запрос проверяется независимо от местоположения",
+    "Доступ разрешён всем, кто внутри VPN",
+    "Аутентификация только для внешних запросов"
+   ],
+   "answer": 1,
+   "explain": "Zero Trust отказывается от понятия доверенного периметра: каждое соединение проверяется через mTLS, идентичность и политику доступа, независимо от того, находится ли источник внутри сети."
+  }
+ ]
+}

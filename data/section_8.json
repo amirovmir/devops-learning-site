@@ -1,0 +1,183 @@
+{
+ "phase": "Phase 3 — CI/CD + Terraform + Ansible",
+ "section": "🤖 Ansible",
+ "topics": [
+  {
+   "title": "Архитектура: control node, managed nodes, агентless через SSH",
+   "level": "🟢 Junior",
+   "explanation": "<p>Ansible — <strong>агентless</strong> система управления конфигурацией: на управляемых узлах (<em>managed nodes</em>) не нужно устанавливать никакого фонового процесса. Вся логика выполняется с <strong>control node</strong> — машины, где установлен Ansible, — а связь с удалёнными хостами идёт по обычному <strong>SSH</strong> (для Windows — WinRM). Это упрощает эксплуатацию: достаточно Python на управляемом узле и SSH-доступа с ключом.</p>\n<p>Control node читает inventory (список хостов), подключается по SSH, копирует небольшие Python-модули на целевую машину, выполняет их и удаляет после выполнения. Так достигается идемпотентность и отсутствие постоянного сетевого демона, как у Puppet или Chef.</p>\n<pre><code># Проверка связи с узлами через ad-hoc команду\nansible all -m ping -i inventory.ini</code></pre>\n<p>Минимальные требования к managed node:</p>\n<ul><li>Python 3.x</li><li>SSH-сервер и доступ по ключу или паролю</li><li>Достаточные права (обычно через sudo)</li></ul>\n<table><tr><th>Компонент</th><th>Роль</th></tr>\n<tr><td>Control node</td><td>запускает playbook, хранит inventory и конфиг</td></tr>\n<tr><td>Managed node</td><td>получает модули по SSH и исполняет их</td></tr>\n<tr><td>Inventory</td><td>описывает, какие хосты управляются</td></tr></table>\n<p>Такая архитектура делает Ansible простым для старта и удобным для CI/CD пайплайнов, где control node — это runner.</p>"
+  },
+  {
+   "title": "Inventory: hosts файл, INI и YAML форматы, группы",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Inventory</strong> — это список хостов, которыми управляет Ansible, с возможностью группировки. По умолчанию используется файл <code>/etc/ansible/hosts</code>, но обычно указывают свой через <code>-i</code>.</p>\n<p>INI-формат:</p>\n<pre><code>[web]\nweb1.example.com\nweb2.example.com ansible_user=deploy\n\n[db]\ndb1.example.com\n\n[prod:children]\nweb\ndb</code></pre>\n<p>Тот же inventory в YAML:</p>\n<pre><code>all:\n  children:\n    web:\n      hosts:\n        web1.example.com:\n        web2.example.com:\n          ansible_user: deploy\n    db:\n      hosts:\n        db1.example.com:</code></pre>\n<p>Группы позволяют применять playbook к части инфраструктуры (<code>hosts: web</code>), а группы групп (<code>prod:children</code>) — строить иерархию окружений.</p>\n<ul><li><strong>ansible_host</strong> — реальный IP/DNS, если отличается от имени</li><li><strong>ansible_user</strong> — пользователь для SSH</li><li><strong>ansible_port</strong> — нестандартный SSH-порт</li></ul>\n<p>Проверить итоговый список хостов:</p>\n<pre><code>ansible-inventory -i inventory.yml --list</code></pre>\n<p>Для больших окружений статический inventory заменяют на <strong>dynamic inventory</strong> (см. отдельную тему).</p>"
+  },
+  {
+   "title": "Ad-hoc: ansible all -m ping, -m shell, -m copy -a \"src= dest=\"",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Ad-hoc команды</strong> — быстрый способ выполнить одну задачу на группе хостов без написания playbook. Формат: <code>ansible &lt;pattern&gt; -m &lt;module&gt; -a &lt;args&gt;</code>.</p>\n<pre><code># Проверка доступности всех хостов\nansible all -m ping -i inventory.ini\n\n# Выполнение shell-команды\nansible web -m shell -a 'uptime'\n\n# Копирование файла\nansible web -m copy -a 'src=./nginx.conf dest=/etc/nginx/nginx.conf'</code></pre>\n<p>Модуль <code>-m ping</code> не отправляет ICMP, а проверяет, что Python на узле отвечает и SSH-подключение работает. Модуль <code>shell</code> выполняет произвольную команду в оболочке (менее идемпотентно, использовать только когда нет готового модуля). Модуль <code>copy</code> — предпочтительный способ передать файл, так как он проверяет контрольную сумму и не переписывает файл без изменений.</p>\n<ul><li><code>-b</code> — выполнить с sudo (become)</li><li><code>-u user</code> — указать SSH-пользователя</li><li><code>-f 10</code> — количество параллельных forks</li></ul>\n<p>Ad-hoc удобны для разовых операций: перезапуск сервиса, проверка версии пакета, быстрый патч. Для повторяемой автоматизации используют playbook.</p>"
+  },
+  {
+   "title": "Playbook: структура (---), hosts, tasks, handlers, notify",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Playbook</strong> — YAML-файл, описывающий набор задач (<em>plays</em>), выполняемых на группах хостов. Начинается с <code>---</code> (маркер YAML-документа).</p>\n<pre><code>---\n- name: Настройка веб-сервера\n  hosts: web\n  become: true\n  tasks:\n    - name: Установить nginx\n      apt:\n        name: nginx\n        state: present\n\n    - name: Скопировать конфиг\n      template:\n        src: nginx.conf.j2\n        dest: /etc/nginx/nginx.conf\n      notify: Restart nginx\n\n  handlers:\n    - name: Restart nginx\n      service:\n        name: nginx\n        state: restarted</code></pre>\n<p>Ключевые элементы:</p>\n<ul><li><code>hosts</code> — на каких хостах/группах выполнять play</li><li><code>tasks</code> — список задач, выполняются последовательно и идемпотентно</li><li><code>handlers</code> — задачи, вызываемые через <code>notify</code>, срабатывают <strong>один раз в конце play</strong>, даже если notify пришёл несколько раз</li><li><code>become</code> — эскалация привилегий (sudo)</li></ul>\n<p>Запуск: <code>ansible-playbook -i inventory.yml site.yml</code>. Handler запускается только если задача действительно изменила состояние (<code>changed</code>), что критично для идемпотентности — например, nginx перезапускается только при реальном изменении конфига.</p>"
+  },
+  {
+   "title": "Модули: apt/yum, copy, template, service, systemd, user, file, git",
+   "level": "🟢 Junior",
+   "explanation": "<p>Модули — это строительные блоки задач Ansible. Каждый модуль решает конкретную задачу декларативно и стремится к идемпотентности.</p>\n<table><tr><th>Модуль</th><th>Назначение</th></tr>\n<tr><td>apt / yum</td><td>управление пакетами Debian/RHEL</td></tr>\n<tr><td>copy</td><td>копирование статичного файла</td></tr>\n<tr><td>template</td><td>рендер Jinja2-шаблона и копирование</td></tr>\n<tr><td>service / systemd</td><td>управление сервисами (start/stop/enable)</td></tr>\n<tr><td>user</td><td>создание/удаление пользователей</td></tr>\n<tr><td>file</td><td>права, владелец, тип файла/директории</td></tr>\n<tr><td>git</td><td>клонирование/обновление репозитория</td></tr></table>\n<pre><code>- name: Установить пакет\n  apt:\n    name: htop\n    state: latest\n    update_cache: true\n\n- name: Создать пользователя deploy\n  user:\n    name: deploy\n    shell: /bin/bash\n    groups: sudo\n    append: true\n\n- name: Клонировать репозиторий\n  git:\n    repo: 'https://github.com/example/app.git'\n    dest: /opt/app\n    version: main\n\n- name: Убедиться, что сервис запущен и включён\n  systemd:\n    name: nginx\n    state: started\n    enabled: true</code></pre>\n<p>Практика: использовать специализированный модуль вместо <code>shell</code>/<code>command</code>, где возможно — так задача остаётся идемпотентной и понятной в отчёте <code>changed/ok</code>.</p>"
+  },
+  {
+   "title": "Переменные: vars, vars_files, group_vars/, host_vars/, register",
+   "level": "🟢 Junior",
+   "explanation": "<p>Ansible поддерживает несколько источников переменных с разным приоритетом. Базовые способы:</p>\n<pre><code># Прямо в playbook\n- hosts: web\n  vars:\n    app_port: 8080\n  tasks:\n    - name: Показать порт\n      debug:\n        msg: 'Порт: {{ app_port }}'</code></pre>\n<p>Файл переменных подключается через <code>vars_files</code>:</p>\n<pre><code>vars_files:\n  - vars/common.yml</code></pre>\n<p>Каталоги <strong>group_vars/</strong> и <strong>host_vars/</strong> подхватываются автоматически по имени группы/хоста из inventory:</p>\n<pre><code>group_vars/\n  web.yml       # применяется ко всем хостам группы \"web\"\n  all.yml       # ко всем хостам\nhost_vars/\n  web1.example.com.yml   # только к этому хосту</code></pre>\n<p><strong>register</strong> сохраняет результат выполнения задачи в переменную для использования далее:</p>\n<pre><code>- name: Проверить версию nginx\n  command: nginx -v\n  register: nginx_version\n\n- name: Показать результат\n  debug:\n    var: nginx_version.stderr</code></pre>\n<p>Порядок приоритета (упрощённо, от низшего к высшему): <code>role defaults</code> → <code>group_vars/all</code> → <code>group_vars/&lt;group&gt;</code> → <code>host_vars</code> → <code>vars</code> в play → <code>-e</code> в командной строке (наивысший приоритет).</p>"
+  },
+  {
+   "title": "Idempotency: понимание и проектирование идемпотентных задач",
+   "level": "🟢 Junior",
+   "explanation": "<p><strong>Идемпотентность</strong> означает: повторный запуск playbook с тем же состоянием системы не приводит к изменениям, а статус задачи — <code>ok</code>, а не <code>changed</code>. Это ключевой принцип Ansible — playbook можно безопасно запускать многократно, и он приведёт систему к желаемому состоянию, а не будет каждый раз \"выполнять действие\".</p>\n<p>Пример неидемпотентной задачи:</p>\n<pre><code>- name: Добавить строку в файл (плохо)\n  shell: echo 'export PATH=$PATH:/opt/bin' >> /etc/profile</code></pre>\n<p>Каждый запуск добавляет новую строку. Правильная идемпотентная альтернатива:</p>\n<pre><code>- name: Добавить строку в файл (хорошо)\n  lineinfile:\n    path: /etc/profile\n    line: 'export PATH=$PATH:/opt/bin'\n    state: present</code></pre>\n<p>Модуль <code>lineinfile</code> сам проверяет, есть ли строка, и не дублирует её. Аналогично <code>apt: state=present</code> не переустанавливает пакет, если он уже установлен нужной версии.</p>\n<ul><li>Используйте декларативные модули (<code>file</code>, <code>copy</code>, <code>template</code>, <code>apt</code>) вместо <code>shell</code>/<code>command</code></li><li>Если без <code>shell</code> не обойтись — добавляйте <code>creates</code>/<code>removes</code> или <code>changed_when</code></li><li>Проверяйте idempotency через двойной запуск: второй прогон должен показать 0 <code>changed</code></li></ul>"
+  },
+  {
+   "title": "Jinja2 шаблоны: {{ var }}, {% if %}, {% for %} в .j2 файлах",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Jinja2</strong> — шаблонизатор, который Ansible использует для генерации конфигурационных файлов из переменных. Файлы шаблонов имеют расширение <code>.j2</code> и обрабатываются модулем <code>template</code>.</p>\n<pre><code># nginx.conf.j2\nserver {\n    listen {{ app_port }};\n    server_name {{ server_name }};\n\n    {% if enable_ssl %}\n    ssl_certificate {{ ssl_cert_path }};\n    ssl_certificate_key {{ ssl_key_path }};\n    {% endif %}\n\n    location / {\n        proxy_pass http://backend;\n    }\n}\n\nupstream backend {\n    {% for host in backend_hosts %}\n    server {{ host }}:8080;\n    {% endfor %}\n}</code></pre>\n<p>Задача, которая рендерит шаблон:</p>\n<pre><code>- name: Сгенерировать nginx.conf\n  template:\n    src: nginx.conf.j2\n    dest: /etc/nginx/nginx.conf\n  notify: Restart nginx</code></pre>\n<p>Полезные фильтры Jinja2 в Ansible:</p>\n<ul><li><code>{{ var | default('значение') }}</code> — значение по умолчанию</li><li><code>{{ list | join(',') }}</code> — объединение списка в строку</li><li><code>{{ var | upper }}</code>, <code>{{ var | lower }}</code></li><li><code>{{ my_dict | to_json }}</code></li></ul>\n<p>Модуль <code>template</code> — идемпотентен: файл переписывается только при реальном изменении содержимого (сравнивается контрольная сумма).</p>"
+  },
+  {
+   "title": "Roles: структура (tasks/ handlers/ templates/ vars/ defaults/)",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Role</strong> — стандартизированный способ упаковать связанные задачи, шаблоны, переменные и обработчики в переиспользуемый модуль. Структура создаётся командой <code>ansible-galaxy init &lt;role_name&gt;</code>:</p>\n<pre><code>roles/nginx/\n├── tasks/main.yml       # основные задачи\n├── handlers/main.yml    # обработчики (notify)\n├── templates/           # .j2 шаблоны\n├── files/                # статические файлы\n├── vars/main.yml         # переменные с высоким приоритетом\n├── defaults/main.yml     # переменные по умолчанию (низший приоритет)\n└── meta/main.yml         # зависимости от других ролей</code></pre>\n<p>Пример <code>tasks/main.yml</code>:</p>\n<pre><code>- name: Установить nginx\n  apt:\n    name: nginx\n    state: present\n\n- name: Развернуть конфиг\n  template:\n    src: nginx.conf.j2\n    dest: /etc/nginx/nginx.conf\n  notify: Restart nginx</code></pre>\n<p>Использование роли в playbook:</p>\n<pre><code>- hosts: web\n  roles:\n    - nginx\n    - { role: app, app_version: \"1.2.0\" }</code></pre>\n<p><code>defaults/main.yml</code> хранит значения, которые пользователь роли легко переопределяет; <code>vars/main.yml</code> — значения, которые менять не рекомендуется. Роли — основа для переиспользования кода между проектами и публикации через Ansible Galaxy.</p>"
+  },
+  {
+   "title": "Loops: loop, with_items, with_dict, with_fileglob",
+   "level": "🟡 Middle",
+   "explanation": "<p>Циклы позволяют выполнить одну задачу для набора значений. Современный синтаксис — <strong>loop</strong> (рекомендован вместо устаревших <code>with_*</code>):</p>\n<pre><code>- name: Установить несколько пакетов\n  apt:\n    name: \"{{ item }}\"\n    state: present\n  loop:\n    - htop\n    - curl\n    - git</code></pre>\n<p>Цикл по списку словарей:</p>\n<pre><code>- name: Создать пользователей\n  user:\n    name: \"{{ item.name }}\"\n    groups: \"{{ item.groups }}\"\n  loop:\n    - { name: 'alice', groups: 'sudo' }\n    - { name: 'bob', groups: 'docker' }</code></pre>\n<p>Устаревшие, но встречающиеся формы:</p>\n<pre><code># Цикл по словарю\n- debug:\n    msg: \"{{ item.key }} = {{ item.value }}\"\n  with_dict: \"{{ my_dict }}\"\n\n# Цикл по файлам, соответствующим шаблону\n- copy:\n    src: \"{{ item }}\"\n    dest: /etc/configs/\n  with_fileglob:\n    - \"configs/*.conf\"</code></pre>\n<p><code>loop</code> с фильтром <code>| dict2items</code> заменяет <code>with_dict</code> в новых версиях Ansible. Внутри цикла доступна переменная <code>item</code>, а <code>loop_control: loop_var: my_item</code> позволяет переименовать её для вложенных циклов.</p>"
+  },
+  {
+   "title": "Ansible Vault: encrypt_string, vault файлы, --ask-vault-pass",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Ansible Vault</strong> — встроенный механизм шифрования секретов (паролей, ключей API, приватных ключей), чтобы безопасно хранить их в Git рядом с playbook.</p>\n<p>Зашифровать весь файл переменных:</p>\n<pre><code>ansible-vault create secrets.yml\nansible-vault edit secrets.yml\nansible-vault encrypt vars/prod.yml</code></pre>\n<p>Зашифровать одну строку (удобно для частичного шифрования в обычном YAML):</p>\n<pre><code>ansible-vault encrypt_string 'SuperSecretPass123' --name 'db_password'</code></pre>\n<p>Результат вставляется прямо в playbook или vars-файл:</p>\n<pre><code>db_password: !vault |\n  $ANSIBLE_VAULT;1.1;AES256\n  66386439653236386164...</code></pre>\n<p>Запуск playbook с зашифрованными данными:</p>\n<pre><code>ansible-playbook site.yml --ask-vault-pass\n# или через файл с паролем (не хранить в Git!)\nansible-playbook site.yml --vault-password-file ~/.vault_pass.txt</code></pre>\n<ul><li><code>ansible-vault view file.yml</code> — просмотреть без расшифровки на диск</li><li><code>ansible-vault rekey file.yml</code> — сменить пароль</li><li>Несколько vault-паролей поддерживаются через <code>--vault-id</code> (для разных окружений: dev/prod)</li></ul>\n<p>Vault использует AES256 и хранит пароль отдельно от кода — обычно в CI как секретная переменная.</p>"
+  },
+  {
+   "title": "Dynamic inventory: aws_ec2, gcp_compute плагины",
+   "level": "🟡 Middle",
+   "explanation": "<p><strong>Dynamic inventory</strong> строит список хостов автоматически из внешнего источника (облачного API), а не из статичного файла — критично для облачных инфраструктур, где IP-адреса и количество инстансов меняются динамически.</p>\n<p>Плагин для AWS EC2 (<code>aws_ec2.yml</code>):</p>\n<pre><code>plugin: amazon.aws.aws_ec2\nregions:\n  - eu-central-1\nfilters:\n  tag:Environment: production\nkeyed_groups:\n  - key: tags.Role\n    prefix: role\ncompose:\n  ansible_host: public_ip_address</code></pre>\n<p>Запуск с указанием на файл-плагин:</p>\n<pre><code>ansible-inventory -i aws_ec2.yml --graph\nansible-playbook -i aws_ec2.yml site.yml --limit role_web</code></pre>\n<p>Аналогичный плагин для GCP:</p>\n<pre><code>plugin: google.cloud.gcp_compute\nprojects:\n  - my-gcp-project\nzones:\n  - europe-west1-b\nauth_kind: serviceaccount\nservice_account_file: /path/to/key.json</code></pre>\n<p>Преимущества: хосты группируются автоматически по тегам (<code>keyed_groups</code>), нет необходимости вручную поддерживать список IP, инвентарь всегда отражает реальное состояние облака. Требуются установленные коллекции (<code>amazon.aws</code>, <code>google.cloud</code>) и корректные учётные данные (IAM role/ключ).</p>"
+  },
+  {
+   "title": "Error handling: failed_when, ignore_errors, block/rescue/always",
+   "level": "🟡 Middle",
+   "explanation": "<p>Ansible предоставляет несколько механизмов управления ошибками, аналогичных try/catch в языках программирования.</p>\n<p><strong>ignore_errors</strong> — продолжить play, даже если задача завершилась с ошибкой:</p>\n<pre><code>- name: Попытка остановить старый сервис\n  service:\n    name: legacy-app\n    state: stopped\n  ignore_errors: true</code></pre>\n<p><strong>failed_when</strong> — переопределить условие, при котором задача считается неудачной:</p>\n<pre><code>- name: Проверить статус приложения\n  command: curl -s http://localhost:8080/health\n  register: result\n  failed_when: \"'ok' not in result.stdout\"</code></pre>\n<p><strong>block/rescue/always</strong> — полноценная обработка ошибок, аналог try/except/finally:</p>\n<pre><code>- name: Обновление приложения\n  block:\n    - name: Остановить сервис\n      service:\n        name: app\n        state: stopped\n    - name: Развернуть новую версию\n      unarchive:\n        src: app-2.0.tar.gz\n        dest: /opt/app\n  rescue:\n    - name: Откатить на предыдущую версию\n      command: /opt/app/rollback.sh\n  always:\n    - name: Запустить сервис\n      service:\n        name: app\n        state: started</code></pre>\n<p><code>rescue</code> выполняется только если задача в <code>block</code> завершилась ошибкой; <code>always</code> выполняется всегда, независимо от результата — удобно для гарантированного возврата сервиса в рабочее состояние.</p>"
+  }
+ ],
+ "quiz": [
+  {
+   "q": "Почему Ansible называют agentless-системой?",
+   "options": [
+    "На managed nodes не нужно устанавливать постоянный демон, связь идёт по SSH",
+    "Он не требует конфигурации вообще",
+    "Он работает только с контейнерами",
+    "Он использует агентов, но скрытых от пользователя"
+   ],
+   "answer": 0,
+   "explain": "Ansible копирует модули по SSH, выполняет их и удаляет — постоянного агента на узле не требуется, в отличие от Puppet или Chef."
+  },
+  {
+   "q": "Какой блок inventory в YAML-формате объединяет группу узлов 'web'?",
+   "options": [
+    "hosts: [web1, web2]",
+    "all: children: web: hosts: ...",
+    "group: web: nodes: ...",
+    "servers: web: list: ..."
+   ],
+   "answer": 1,
+   "explain": "В YAML-inventory структура строится через all → children → <имя группы> → hosts."
+  },
+  {
+   "q": "Какая ad-hoc команда используется для проверки доступности узлов без выполнения shell-команд?",
+   "options": [
+    "ansible all -m shell -a 'echo ok'",
+    "ansible all -m copy",
+    "ansible all -m ping",
+    "ansible all -m service"
+   ],
+   "answer": 2,
+   "explain": "Модуль ping проверяет, что Python на узле отвечает и SSH-соединение работает, без реального ICMP-запроса."
+  },
+  {
+   "q": "Когда срабатывает handler, вызванный через notify?",
+   "options": [
+    "Немедленно после задачи, вызвавшей notify",
+    "В начале play, до всех задач",
+    "Только если play завершился с ошибкой",
+    "Один раз в конце play, даже если notify сработал несколько раз"
+   ],
+   "answer": 3,
+   "explain": "Handlers откладываются и выполняются один раз в конце play, что предотвращает избыточные перезапуски сервисов."
+  },
+  {
+   "q": "Какой модуль предпочтительнее для установки пакета вместо shell/command?",
+   "options": [
+    "shell",
+    "apt / yum",
+    "command",
+    "raw"
+   ],
+   "answer": 1,
+   "explain": "Специализированные модули apt/yum идемпотентны и декларативны, в отличие от shell/command, которые выполняются каждый раз заново."
+  },
+  {
+   "q": "Где хранятся переменные, которые автоматически применяются ко всем хостам группы 'db' из inventory?",
+   "options": [
+    "host_vars/db.yml",
+    "vars_files/db.yml",
+    "group_vars/db.yml",
+    "defaults/db.yml"
+   ],
+   "answer": 2,
+   "explain": "Файлы в каталоге group_vars/ с именем группы автоматически подключаются Ansible для всех хостов этой группы."
+  },
+  {
+   "q": "Что означает идемпотентность playbook?",
+   "options": [
+    "Playbook выполняется быстрее при повторном запуске",
+    "Playbook нельзя запускать более одного раза",
+    "Все задачи всегда возвращают статус changed",
+    "Повторный запуск не меняет систему, если она уже в желаемом состоянии"
+   ],
+   "answer": 3,
+   "explain": "Идемпотентность — ключевой принцип: повторные запуски безопасны и не приводят к лишним изменениям, если состояние уже достигнуто."
+  },
+  {
+   "q": "Какой синтаксис Jinja2 используется для условного блока в шаблоне .j2?",
+   "options": [
+    "{{ if condition }} ... {{ endif }}",
+    "<if condition> ... </if>",
+    "{% if condition %} ... {% endif %}",
+    "#if condition ... #endif"
+   ],
+   "answer": 2,
+   "explain": "Управляющие конструкции Jinja2 (if, for) записываются в блоках {% %}, а вывод переменных — в {{ }}."
+  },
+  {
+   "q": "В какой директории роли хранятся переменные с наинизшим приоритетом, легко переопределяемые пользователем?",
+   "options": [
+    "vars/",
+    "handlers/",
+    "meta/",
+    "defaults/"
+   ],
+   "answer": 3,
+   "explain": "defaults/main.yml содержит значения по умолчанию с самым низким приоритетом — их удобно переопределять при использовании роли."
+  },
+  {
+   "q": "Какая конструкция обработки ошибок в Ansible аналогична try/except/finally?",
+   "options": [
+    "ignore_errors",
+    "register",
+    "failed_when",
+    "block/rescue/always"
+   ],
+   "answer": 3,
+   "explain": "block/rescue/always позволяет сгруппировать задачи, обработать ошибку в rescue и гарантированно выполнить финальные действия в always."
+  }
+ ]
+}

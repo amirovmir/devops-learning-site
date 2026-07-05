@@ -1,0 +1,215 @@
+{
+ "phase": "Phase 1 — Linux + Bash + Git",
+ "section": "⚙️ Bash Scripting",
+ "topics": [
+  {
+   "title": "Переменные, строки, арифметика: $var, $(( )), \"${var:-default}\"",
+   "level": "🟢 Junior",
+   "explanation": "<p>Переменные в Bash не типизированы и по умолчанию хранятся как строки. Объявление и обращение не требует знаков доллара при присвоении, но требует при чтении:</p>\n<pre><code>name=\"server1\"\necho \"Host: $name\"</code></pre>\n<p>Для арифметики используется конструкция <code>$(( ))</code>, внутри которой Bash интерпретирует выражение как целочисленную математику:</p>\n<pre><code>count=5\nresult=$(( count * 2 + 1 ))\necho $result   # 11</code></pre>\n<p>Часто в production-скриптах нужны <strong>значения по умолчанию</strong>, чтобы скрипт не падал на неопределённых переменных. Для этого используется параметрическое расширение:</p>\n<ul>\n<li><code>${var:-default}</code> — вернёт <code>default</code>, если <code>var</code> не задана или пуста (саму переменную не меняет)</li>\n<li><code>${var:=default}</code> — то же самое, но ещё и присвоит значение <code>var</code></li>\n<li><code>${var:+alt}</code> — вернёт <code>alt</code>, если <code>var</code> задана</li>\n<li><code>${var:?message}</code> — завершит скрипт с ошибкой <code>message</code>, если переменная не задана</li>\n</ul>\n<p>Пример на практике — конфигурация с fallback-значением окружения:</p>\n<pre><code>ENV=\"${DEPLOY_ENV:-production}\"\nLOG_DIR=\"${LOG_DIR:?LOG_DIR must be set}\"</code></pre>\n<p>Строковые операции: конкатенация делается простым соположением (<code>\"$a$b\"</code>), длина строки — <code>${#var}</code>, подстрока — <code>${var:offset:length}</code>. Это критично знать для написания устойчивых deploy-скриптов, где отсутствие переменной окружения не должно приводить к тихой поломке.</p>"
+  },
+  {
+   "title": "Условия: if/elif/else, case, [ ], [[ ]], -eq -ne -gt -lt -z -n",
+   "level": "🟢 Junior",
+   "explanation": "<p>Условные конструкции в Bash — основа логики любого скрипта. Классическая форма:</p>\n<pre><code>if [ \"$status\" = \"ok\" ]; then\n    echo \"All good\"\nelif [ \"$status\" = \"warn\" ]; then\n    echo \"Warning\"\nelse\n    echo \"Failed\"\nfi</code></pre>\n<p><strong>Важное отличие:</strong> <code>[ ]</code> — это вызов внешней команды <code>test</code>, требующей пробелов и кавычек вокруг переменных (иначе word splitting сломает скрипт при пустых значениях). <code>[[ ]]</code> — встроенная в Bash конструкция, безопаснее и поддерживает <code>&&</code>, <code>||</code>, шаблоны и regex (<code>=~</code>) напрямую внутри.</p>\n<pre><code>if [[ \"$file\" == *.log && -f \"$file\" ]]; then\n    echo \"Log file exists\"\nfi</code></pre>\n<p>Числовые сравнения используют не <code>&gt;</code> / <code>&lt;</code>, а буквенные операторы:</p>\n<table>\n<tr><th>Оператор</th><th>Значение</th></tr>\n<tr><td><code>-eq</code></td><td>равно</td></tr>\n<tr><td><code>-ne</code></td><td>не равно</td></tr>\n<tr><td><code>-gt</code></td><td>больше</td></tr>\n<tr><td><code>-lt</code></td><td>меньше</td></tr>\n<tr><td><code>-z</code></td><td>строка пустая</td></tr>\n<tr><td><code>-n</code></td><td>строка непустая</td></tr>\n</table>\n<p><code>case</code> удобен для множественного ветвления, например обработки аргументов CLI:</p>\n<pre><code>case \"$1\" in\n    start) echo \"starting\" ;;\n    stop)  echo \"stopping\" ;;\n    *)     echo \"usage: $0 {start|stop}\" ;;\nesac</code></pre>\n<p>Для DevOps-скриптов рекомендуется всегда использовать <code>[[ ]]</code> и кавычки вокруг переменных — это защищает от неожиданного поведения при пустых или содержащих пробелы значениях.</p>"
+  },
+  {
+   "title": "Циклы: for, while, until, break, continue",
+   "level": "🟢 Junior",
+   "explanation": "<p>Циклы позволяют обрабатывать списки серверов, файлов, строк вывода команд — базовая задача любого SRE-скрипта. Цикл <code>for</code> чаще всего используется по списку значений:</p>\n<pre><code>for host in web1 web2 web3; do\n    ssh \"$host\" \"systemctl status nginx\"\ndone</code></pre>\n<p>Или по результату команды (с осторожностью к word splitting):</p>\n<pre><code>for file in *.log; do\n    gzip \"$file\"\ndone</code></pre>\n<p><code>while</code> выполняется, пока условие истинно — классический пример: чтение файла построчно:</p>\n<pre><code>while IFS= read -r line; do\n    echo \"processing: $line\"\ndone < servers.txt</code></pre>\n<p><code>until</code> — обратная логика, выполняется <strong>до тех пор пока</strong> условие не станет истинным. Часто используется в скриптах ожидания готовности сервиса:</p>\n<pre><code>until curl -sf http://localhost:8080/health; do\n    echo \"waiting for service...\"\n    sleep 2\ndone</code></pre>\n<p><code>break</code> прерывает цикл целиком, <code>continue</code> — переходит к следующей итерации, пропуская оставшийся код:</p>\n<pre><code>for i in 1 2 3 4 5; do\n    if [ \"$i\" -eq 3 ]; then\n        continue\n    fi\n    echo \"$i\"\ndone</code></pre>\n<p>Практический совет: не используйте <code>for file in $(ls)</code> — это ломается на именах с пробелами. Вместо этого используйте glob-паттерны (<code>*.log</code>) или <code>find ... -print0 | while read -d '' -r file</code> для безопасной обработки произвольных имён.</p>"
+  },
+  {
+   "title": "Функции: определение, аргументы ($1 $2 $@), return, local",
+   "level": "🟢 Junior",
+   "explanation": "<p>Функции в Bash позволяют структурировать скрипт и избегать дублирования кода. Определение выглядит так:</p>\n<pre><code>backup_file() {\n    local src=\"$1\"\n    local dest=\"$2\"\n    cp \"$src\" \"$dest\" && echo \"backed up $src\"\n}\n\nbackup_file \"/etc/nginx.conf\" \"/backup/nginx.conf.bak\"</code></pre>\n<p>Аргументы функции доступны через позиционные параметры: <code>$1</code>, <code>$2</code>, ..., <code>$@</code> (все аргументы как отдельные слова), <code>$#</code> (количество аргументов). Важно: функции в Bash <strong>не имеют своей области видимости по умолчанию</strong> — все переменные глобальны, если явно не указано <code>local</code>.</p>\n<pre><code>counter=0\nincrement() {\n    local step=\"${1:-1}\"\n    counter=$(( counter + step ))\n}\nincrement 5\necho \"$counter\"   # 5</code></pre>\n<p><code>local</code> критически важен в скриптах, где функции вызываются рекурсивно или из разных мест — без него переменная-счётчик или временное значение может случайно перезаписать переменную вызывающего кода.</p>\n<p><code>return</code> задаёт только код возврата функции (0–255), а не значение — для \"возврата\" данных используют либо <code>echo</code> с захватом через <code>$( )</code>, либо глобальную переменную:</p>\n<pre><code>is_running() {\n    pgrep -x \"$1\" > /dev/null\n    return $?\n}\n\nif is_running \"nginx\"; then\n    echo \"nginx is up\"\nfi</code></pre>\n<p>Такой паттерн часто используют в health-check и deploy-скриптах для проверки состояния сервисов перед выполнением следующего шага.</p>"
+  },
+  {
+   "title": "Коды возврата: $?, &&, ||, set -euo pipefail",
+   "level": "🟢 Junior",
+   "explanation": "<p>Каждая выполненная команда в Bash возвращает код завершения, доступный через переменную <code>$?</code>: <strong>0</strong> означает успех, любое ненулевое значение — ошибку (конкретный смысл кода зависит от программы).</p>\n<pre><code>grep \"ERROR\" app.log\necho $?   # 0 если найдено, 1 если не найдено, 2 при ошибке доступа к файлу</code></pre>\n<p>Операторы <code>&&</code> и <code>||</code> позволяют строить логику на кодах возврата без явных <code>if</code>:</p>\n<pre><code>mkdir -p /data/backup && echo \"created\" || echo \"failed to create\"\nsystemctl restart nginx && curl -sf localhost || echo \"restart failed\"</code></pre>\n<p><code>&&</code> выполняет следующую команду только при успехе предыдущей, <code>||</code> — только при неудаче. Это удобно для коротких проверок, но злоупотребление ими в сложной логике снижает читаемость — тогда лучше явный <code>if</code>.</p>\n<p>Директива <code>set -euo pipefail</code> — стандарт для production-скриптов, ставится в начале файла:</p>\n<ul>\n<li><code>set -e</code> — скрипт немедленно завершается при любой команде с ненулевым кодом возврата</li>\n<li><code>set -u</code> — обращение к неопределённой переменной вызывает ошибку вместо подстановки пустой строки</li>\n<li><code>set -o pipefail</code> — код возврата pipeline равен коду первой упавшей команды, а не только последней</li>\n</ul>\n<pre><code>#!/bin/bash\nset -euo pipefail\n\ncd /opt/app\ngit pull\nsystemctl restart app</code></pre>\n<p>Без <code>pipefail</code>, например, <code>cat missing.txt | grep foo</code> вернёт код <code>grep</code> (1, \"не найдено\"), а не ошибку <code>cat</code> — скрипт может незаметно продолжить работу с неверными данными.</p>"
+  },
+  {
+   "title": "Отладка: set -x, bash -n (syntax check), shellcheck",
+   "level": "🟢 Junior",
+   "explanation": "<p>Отладка bash-скриптов — обязательный навык, особенно когда скрипт запускается на удалённом сервере без интерактивного доступа. Три основных инструмента:</p>\n<p><strong>1. <code>set -x</code></strong> включает трассировку выполнения — каждая команда печатается в stderr перед выполнением, с подстановленными значениями переменных:</p>\n<pre><code>#!/bin/bash\nset -x\nname=\"prod\"\necho \"deploying to $name\"\nset +x   # отключить трассировку</code></pre>\n<p>Вывод покажет: <code>+ name=prod</code> и <code>+ echo 'deploying to prod'</code>. Можно включить трассировку только для части скрипта, оборачивая проблемный участок в <code>set -x</code> / <code>set +x</code>, либо запустить весь скрипт с флагом: <code>bash -x script.sh</code>.</p>\n<p><strong>2. <code>bash -n</code></strong> — проверка синтаксиса без выполнения (\"dry parse\"). Полезно перед деплоем, чтобы отловить незакрытые кавычки или скобки:</p>\n<pre><code>bash -n deploy.sh && echo \"syntax OK\"</code></pre>\n<p><strong>3. <code>shellcheck</code></strong> — статический анализатор, находящий распространённые ошибки: незаквоченные переменные, неправильное использование <code>[ ]</code>, потенциальный word splitting, устаревшие конструкции:</p>\n<pre><code>shellcheck deploy.sh</code></pre>\n<p>Пример типичного предупреждения shellcheck: <code>SC2086: Double quote to prevent globbing and word splitting</code>. Рекомендуется подключать shellcheck в CI pipeline как lint-шаг перед merge — это ловит баги ещё до запуска на проде.</p>"
+  },
+  {
+   "title": "Текстовые утилиты: grep -E, sed s/old/new/g, awk {print $1}",
+   "level": "🟢 Junior",
+   "explanation": "<p>Три классических текстовых инструмента Unix составляют основу обработки логов и вывода команд в DevOps.</p>\n<p><strong>grep</strong> ищет строки по шаблону. Флаг <code>-E</code> включает расширенные регулярные выражения (ERE), позволяя использовать <code>+</code>, <code>?</code>, <code>|</code> без экранирования:</p>\n<pre><code>grep -E \"ERROR|WARN\" app.log\ngrep -E \"^[0-9]{3}\\.[0-9]{3}\" access.log   # IP-подобные строки</code></pre>\n<p>Полезные флаги: <code>-i</code> (без учёта регистра), <code>-v</code> (инвертировать), <code>-c</code> (только счётчик), <code>-n</code> (номера строк), <code>-A</code>/<code>-B</code> (контекст после/до).</p>\n<p><strong>sed</strong> — потоковый редактор, чаще всего используется для замены текста:</p>\n<pre><code>sed 's/old/new/g' file.txt          # замена всех вхождений\nsed 's/^#//' config.conf            # убрать закомментированность</code></pre>\n<p><strong>awk</strong> — язык обработки текста по полям, разделённым пробелом (по умолчанию). Классика — вывод конкретной колонки:</p>\n<pre><code>ps aux | awk '{print $1, $2, $11}'   # user, pid, command\ndf -h | awk '$5+0 > 80 {print $1, $5}'   # разделы заполненные >80%</code></pre>\n<p>Комбинация этих трёх инструментов через pipe — стандартный паттерн для парсинга логов в SRE-практике, например поиск и подсчёт ошибок 5xx в nginx-логах:</p>\n<pre><code>grep -E \" 5[0-9]{2} \" access.log | awk '{print $7}' | sort | uniq -c | sort -rn</code></pre>"
+  },
+  {
+   "title": "Регулярные выражения: базовый BRE и расширенный ERE синтаксис",
+   "level": "🟢 Junior",
+   "explanation": "<p>Регулярные выражения в Unix-инструментах существуют в двух диалектах: <strong>BRE</strong> (Basic Regular Expressions) и <strong>ERE</strong> (Extended Regular Expressions). Разница — в том, какие символы требуют экранирования.</p>\n<p>В BRE (используется в <code>grep</code> и <code>sed</code> по умолчанию) метасимволы <code>+</code>, <code>?</code>, <code>|</code>, <code>( )</code>, <code>{ }</code> считаются обычными символами, и для придания им особого смысла их нужно экранировать backslash'ем:</p>\n<pre><code>grep 'a\\{2,3\\}' file.txt      # BRE: 2-3 повтора символа a\ngrep 'foo\\|bar' file.txt        # BRE: альтернация</code></pre>\n<p>В ERE (<code>grep -E</code>, <code>egrep</code>, <code>awk</code>) те же символы работают без экранирования:</p>\n<pre><code>grep -E 'a{2,3}' file.txt\ngrep -E 'foo|bar' file.txt</code></pre>\n<table>\n<tr><th>Метасимвол</th><th>Значение</th></tr>\n<tr><td><code>.</code></td><td>любой символ</td></tr>\n<tr><td><code>*</code></td><td>0 или более повторов</td></tr>\n<tr><td><code>^</code> / <code>$</code></td><td>начало / конец строки</td></tr>\n<tr><td><code>[abc]</code></td><td>один из перечисленных символов</td></tr>\n<tr><td><code>[^abc]</code></td><td>любой символ, кроме перечисленных</td></tr>\n<tr><td><code>\\d</code>, <code>\\w</code></td><td>не поддерживаются в BRE/ERE (это PCRE)</td></tr>\n</table>\n<p>Важно: <code>\\d</code> и <code>\\w</code> — это возможности PCRE (<code>grep -P</code>), а не BRE/ERE. Для базовых DevOps-задач (парсинг логов, поиск IP-адресов, версий) обычно достаточно ERE. Пример проверки формата версии semver:</p>\n<pre><code>echo \"$version\" | grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+$'</code></pre>"
+  },
+  {
+   "title": "Pipe и перенаправление: |, >, >>, <, 2>&1, /dev/null",
+   "level": "🟢 Junior",
+   "explanation": "<p>Перенаправление и pipe — фундаментальный механизм Unix, позволяющий соединять команды и управлять потоками данных. У каждого процесса есть три стандартных дескриптора: <strong>stdin (0)</strong>, <strong>stdout (1)</strong>, <strong>stderr (2)</strong>.</p>\n<p><strong>Pipe <code>|</code></strong> передаёт stdout одной команды на stdin следующей:</p>\n<pre><code>ps aux | grep nginx | awk '{print $2}'</code></pre>\n<p><strong>Перенаправление вывода:</strong></p>\n<ul>\n<li><code>&gt;</code> — перезаписать файл содержимым stdout</li>\n<li><code>&gt;&gt;</code> — дописать в конец файла</li>\n<li><code>&lt;</code> — использовать файл как stdin</li>\n</ul>\n<pre><code>echo \"deploy started\" > deploy.log\necho \"step 2 done\" >> deploy.log\nwhile read -r line; do echo \"$line\"; done < deploy.log</code></pre>\n<p><strong>Управление stderr</strong> критично для логирования в production: <code>2&gt;&amp;1</code> объединяет stderr с текущим stdout (порядок важен — редирект применяется слева на права):</p>\n<pre><code>command > output.log 2>&1        # верно: оба потока в файл\ncommand 2>&1 > output.log        # неверно: stderr уйдёт в терминал</code></pre>\n<p>Отправка ненужного вывода в \"чёрную дыру\" — распространённый паттерн в cron-задачах:</p>\n<pre><code>/usr/local/bin/cleanup.sh > /dev/null 2>&1</code></pre>\n<p>Однако для production-скриптов такое подавление ошибок не рекомендуется — лучше направлять stderr в отдельный лог-файл, чтобы не терять диагностическую информацию при сбоях.</p>"
+  },
+  {
+   "title": "Продвинутый sed: -i (in-place), диапазоны строк, несколько выражений",
+   "level": "🟡 Middle",
+   "explanation": "<p><code>sed</code> в расширенном режиме позволяет изменять файлы напрямую, работать с диапазонами строк и выполнять несколько операций за один проход.</p>\n<p><strong>Флаг <code>-i</code></strong> (in-place) редактирует файл на месте вместо вывода в stdout. Рекомендуется всегда делать бэкап с суффиксом, особенно в production:</p>\n<pre><code>sed -i.bak 's/DEBUG=false/DEBUG=true/' app.conf   # создаст app.conf.bak\nsed -i 's/old/new/g' config.yml                    # без бэкапа (осторожно!)</code></pre>\n<p><strong>Диапазоны строк</strong> задаются номерами строк, регулярками или их комбинацией, что удобно для точечного редактирования конфигов:</p>\n<pre><code>sed -n '10,20p' file.txt              # вывести строки 10-20\nsed '/start/,/end/d' file.txt         # удалить блок между шаблонами\nsed '5,10s/foo/bar/' file.txt         # заменить только в строках 5-10</code></pre>\n<p><strong>Несколько выражений</strong> объединяются через <code>-e</code> или точку с запятой:</p>\n<pre><code>sed -e 's/foo/bar/' -e 's/baz/qux/' file.txt\nsed 's/foo/bar/; s/baz/qux/' file.txt</code></pre>\n<p>Практический пример — массовая замена версии образа во всех манифестах перед деплоем:</p>\n<pre><code>sed -i \"s/image: app:.*/image: app:${NEW_VERSION}/\" deployment.yaml</code></pre>\n<p>Важный нюанс совместимости: на macOS/BSD <code>sed -i</code> требует явного (даже пустого) суффикса — <code>sed -i '' 's/a/b/' file</code>, в отличие от GNU sed на Linux. Это частая причина сломанных cross-platform CI-скриптов.</p>"
+  },
+  {
+   "title": "Продвинутый awk: BEGIN/END, поля, условия, getline, printf",
+   "level": "🟡 Middle",
+   "explanation": "<p><code>awk</code> — полноценный язык программирования для построчной обработки текста, особенно мощный при работе с табличными данными (логи, вывод <code>ps</code>, <code>df</code>, CSV).</p>\n<p><strong>Структура программы:</strong> <code>BEGIN { } { основной блок для каждой строки } END { }</code>. <code>BEGIN</code> выполняется до чтения данных, <code>END</code> — после обработки всех строк:</p>\n<pre><code>awk 'BEGIN { print \"Report:\" }\n     { total += $3 }\n     END { print \"Total:\", total }' sales.txt</code></pre>\n<p><strong>Поля</strong> доступны как <code>$1</code>, <code>$2</code>, ... <code>$0</code> — вся строка. Разделитель полей задаётся через <code>-F</code>:</p>\n<pre><code>awk -F: '{print $1, $3}' /etc/passwd    # имя пользователя и UID</code></pre>\n<p><strong>Условия</strong> перед блоком фильтруют строки без явного <code>if</code>:</p>\n<pre><code>df -h | awk '$5+0 > 90 {print $6, $5}'   # разделы заполненные >90%</code></pre>\n<p><strong><code>getline</code></strong> читает следующую строку вручную — полезно для сопоставления пар строк или чтения из другого файла внутри awk-скрипта.</p>\n<p><strong><code>printf</code></strong> даёт контроль над форматированием вывода в отличие от <code>print</code>:</p>\n<pre><code>awk '{ printf \"%-15s %5d\\n\", $1, $2 }' data.txt</code></pre>\n<p>Практический пример анализа access-лога — топ IP-адресов по количеству запросов:</p>\n<pre><code>awk '{print $1}' access.log | sort | uniq -c | sort -rn | head -10</code></pre>\n<p>awk особенно ценен, когда grep/sed уже недостаточно, а писать полноценный Python-скрипт избыточно для одноразовой задачи в терминале.</p>"
+  },
+  {
+   "title": "Массивы: индексные (arr=(a b c)), ассоциативные (declare -A)",
+   "level": "🟡 Middle",
+   "explanation": "<p>Массивы в Bash позволяют хранить списки значений и работать с ними как с единой структурой — полезно для списков серверов, файлов, аргументов.</p>\n<p><strong>Индексные массивы</strong> — упорядоченный список с числовыми индексами, начиная с 0:</p>\n<pre><code>servers=(web1 web2 web3)\necho \"${servers[0]}\"        # web1\necho \"${servers[@]}\"        # все элементы: web1 web2 web3\necho \"${#servers[@]}\"       # количество элементов: 3\n\nservers+=(web4)             # добавить элемент\nfor s in \"${servers[@]}\"; do\n    ssh \"$s\" uptime\ndone</code></pre>\n<p><strong>Ассоциативные массивы</strong> (аналог dict/hashmap) объявляются явно через <code>declare -A</code> и используют строковые ключи:</p>\n<pre><code>declare -A ports\nports[nginx]=80\nports[postgres]=5432\nports[redis]=6379\n\necho \"${ports[postgres]}\"      # 5432\nfor service in \"${!ports[@]}\"; do\n    echo \"$service listens on ${ports[$service]}\"\ndone</code></pre>\n<p><code>${!array[@]}</code> возвращает все ключи (для ассоциативного) или индексы (для индексного массива) — важная конструкция для итерации.</p>\n<p>Практический пример — маппинг окружений на URL для скрипта деплоя:</p>\n<pre><code>declare -A env_urls\nenv_urls[dev]=\"https://dev.example.com\"\nenv_urls[prod]=\"https://example.com\"\n\ntarget=\"${env_urls[$ENV]:?Unknown environment: $ENV}\"</code></pre>\n<p>Важно всегда квотировать <code>\"${array[@]}\"</code> — без кавычек элементы с пробелами разобьются на несколько слов при итерации.</p>"
+  },
+  {
+   "title": "Подстановка процессов: <(cmd), xargs -I{}, parallel",
+   "level": "🟡 Middle",
+   "explanation": "<p>Три инструмента ускоряют и обогащают работу с командной строкой, позволяя обрабатывать данные без промежуточных файлов и параллельно выполнять задачи.</p>\n<p><strong>Подстановка процессов <code>&lt;(cmd)</code></strong> подставляет вывод команды как путь к файлу (через именованный pipe), что позволяет сравнивать вывод двух команд без создания временных файлов:</p>\n<pre><code>diff <(ls /etc/nginx/sites-enabled) <(ls /etc/nginx/sites-available)\ncomm -3 <(sort file1.txt) <(sort file2.txt)</code></pre>\n<p><strong><code>xargs -I{}</code></strong> передаёт результат одной команды как аргументы другой, подставляя <code>{}</code> вместо каждого элемента — полезно, когда команда не читает stdin сама:</p>\n<pre><code>find /var/log -name \"*.log\" -mtime +30 | xargs -I{} rm {}\ncat hosts.txt | xargs -I{} ssh {} \"uptime\"</code></pre>\n<p>Флаг <code>-P</code> в xargs включает параллельное выполнение — существенно ускоряет операции на множестве целей:</p>\n<pre><code>cat hosts.txt | xargs -P 10 -I{} ssh {} \"df -h\"</code></pre>\n<p><strong>GNU <code>parallel</code></strong> — более мощная альтернатива xargs с прогресс-баром, логированием и лучшим контролем параллелизма:</p>\n<pre><code>cat servers.txt | parallel -j 5 \"ssh {} 'systemctl restart app'\"\nparallel --dry-run gzip ::: *.log   # проверка команд без выполнения</code></pre>\n<p>Эти инструменты особенно ценны при массовых операциях на десятках серверов — вместо последовательного цикла с <code>for</code>, который может занять часы, параллельное выполнение сокращает время до минут.</p>"
+  },
+  {
+   "title": "Обработка сигналов: trap \"cleanup\" EXIT INT TERM",
+   "level": "🟡 Middle",
+   "explanation": "<p><code>trap</code> перехватывает сигналы и события завершения процесса, позволяя выполнить код очистки независимо от того, как скрипт завершился — успешно, с ошибкой или по прерыванию пользователем.</p>\n<p>Базовый синтаксис — привязка команды или функции к сигналу:</p>\n<pre><code>cleanup() {\n    echo \"Cleaning up temp files...\"\n    rm -f /tmp/deploy_lock_$$\n}\ntrap cleanup EXIT INT TERM</code></pre>\n<p><strong>Ключевые сигналы:</strong></p>\n<table>\n<tr><th>Сигнал</th><th>Когда срабатывает</th></tr>\n<tr><td><code>EXIT</code></td><td>любое завершение скрипта (успех, ошибка, сигнал)</td></tr>\n<tr><td><code>INT</code></td><td>Ctrl+C (SIGINT)</td></tr>\n<tr><td><code>TERM</code></td><td>команда kill по умолчанию (SIGTERM)</td></tr>\n<tr><td><code>ERR</code></td><td>любая команда завершилась с ошибкой (требует set -e)</td></tr>\n</table>\n<p><code>trap ... EXIT</code> — самый полезный вариант в production-скриптах, так как гарантирует выполнение очистки даже если скрипт упал посередине выполнения:</p>\n<pre><code>LOCKFILE=\"/var/run/deploy.lock\"\ntrap 'rm -f \"$LOCKFILE\"' EXIT\n\nif [ -f \"$LOCKFILE\" ]; then\n    echo \"Deploy already running\"\n    exit 1\nfi\ntouch \"$LOCKFILE\"\n# ... основная логика деплоя ...</code></pre>\n<p>Без <code>trap</code> lock-файл может остаться на диске после сбоя скрипта, блокируя все последующие запуски навсегда — классическая причина \"залипших\" CI/CD pipeline.</p>"
+  },
+  {
+   "title": "Скрипты в prod: logging с timestamp, idempotency, lock файлы",
+   "level": "🟡 Middle",
+   "explanation": "<p>Скрипты, работающие на реальных production-серверах, требуют дополнительной устойчивости по сравнению с одноразовыми скриптами для терминала — три ключевых принципа: логирование, идемпотентность, защита от параллельного запуска.</p>\n<p><strong>Логирование с timestamp</strong> критично для последующего разбора инцидентов. Простая функция-обёртка:</p>\n<pre><code>log() {\n    echo \"[$(date '+%Y-%m-%d %H:%M:%S')] $*\" | tee -a /var/log/deploy.log\n}\nlog \"Starting deployment of version $VERSION\"</code></pre>\n<p><strong>Идемпотентность</strong> означает, что повторный запуск скрипта с теми же входными данными не должен ломать систему или создавать дубликаты. Пример неидемпотентного и исправленного варианта:</p>\n<pre><code># Плохо: упадёт при повторном запуске\nmkdir /opt/app/releases/v1.2.3\n\n# Хорошо: идемпотентно\nmkdir -p /opt/app/releases/v1.2.3</code></pre>\n<p>Аналогично для добавления строк в конфиг — нужна проверка на существование перед добавлением, а не безусловный <code>echo &gt;&gt;</code>.</p>\n<p><strong>Lock-файлы</strong> предотвращают параллельный запуск одного и того же скрипта (например, двух cron-задач одновременно):</p>\n<pre><code>LOCKFILE=\"/var/run/myscript.lock\"\nexec 200>\"$LOCKFILE\"\nflock -n 200 || { echo \"Already running\"; exit 1; }\ntrap 'flock -u 200' EXIT\n# ... основная логика ...</code></pre>\n<p><code>flock</code> надёжнее простой проверки <code>if [ -f lockfile ]</code>, так как атомарно блокирует файл на уровне ядра и автоматически освобождается при завершении процесса, даже аварийном.</p>"
+  }
+ ],
+ "quiz": [
+  {
+   "q": "Что делает конструкция ${var:-default}?",
+   "options": [
+    "Удаляет переменную var",
+    "Возвращает default, если var не задана или пуста, без изменения var",
+    "Выводит ошибку, если var не задана",
+    "Присваивает default переменной var навсегда"
+   ],
+   "answer": 1,
+   "explain": "${var:-default} только подставляет значение по умолчанию в выражении, саму переменную var не меняет — в отличие от ${var:=default}."
+  },
+  {
+   "q": "Чем [[ ]] отличается от [ ] в условиях Bash?",
+   "options": [
+    "Разницы нет, это синонимы",
+    "[[ ]] — встроенная конструкция Bash, безопаснее с непроквоченными переменными и поддерживает regex",
+    "[[ ]] работает только с числами",
+    "[ ] — встроенная конструкция, [[ ]] — внешняя команда"
+   ],
+   "answer": 1,
+   "explain": "[ ] — вызов команды test, требует аккуратных кавычек. [[ ]] встроена в Bash, поддерживает && || и =~ напрямую."
+  },
+  {
+   "q": "Какой цикл выполняется, пока условие ЛОЖНО?",
+   "options": [
+    "while",
+    "case",
+    "until",
+    "for"
+   ],
+   "answer": 2,
+   "explain": "until выполняет тело цикла до тех пор, пока условие не станет истинным — то есть пока оно ложно."
+  },
+  {
+   "q": "Как объявить локальную переменную внутри функции Bash?",
+   "options": [
+    "local var",
+    "static var",
+    "private var",
+    "const var"
+   ],
+   "answer": 0,
+   "explain": "Ключевое слово local ограничивает область видимости переменной функцией, иначе все переменные в Bash глобальны."
+  },
+  {
+   "q": "Что делает set -o pipefail?",
+   "options": [
+    "Код возврата pipeline становится кодом первой упавшей команды, а не только последней",
+    "Ускоряет выполнение pipe",
+    "Логирует все pipe в файл",
+    "Отключает pipe в скрипте"
+   ],
+   "answer": 0,
+   "explain": "Без pipefail код возврата pipeline равен коду последней команды — ошибка в начале цепочки может остаться незамеченной."
+  },
+  {
+   "q": "Какой инструмент выполняет статический анализ bash-скриптов на распространённые ошибки?",
+   "options": [
+    "shellcheck",
+    "awk",
+    "set -x",
+    "bash -n"
+   ],
+   "answer": 0,
+   "explain": "shellcheck — линтер для shell-скриптов, находит незаквоченные переменные, word splitting и другие типичные баги."
+  },
+  {
+   "q": "Какой флаг grep включает расширенные регулярные выражения (ERE)?",
+   "options": [
+    "-E",
+    "-v",
+    "-i",
+    "-c"
+   ],
+   "answer": 0,
+   "explain": "grep -E включает ERE, где +, ?, |, ( ) работают без экранирования backslash'ем, в отличие от базового BRE."
+  },
+  {
+   "q": "В чём отличие BRE от ERE?",
+   "options": [
+    "В BRE метасимволы +, ?, | требуют экранирования backslash'ем, в ERE — не требуют",
+    "Отличий нет, это устаревшая терминология",
+    "BRE поддерживает Unicode, ERE — нет",
+    "ERE работает только в awk"
+   ],
+   "answer": 0,
+   "explain": "В BRE (grep/sed по умолчанию) расширенные метасимволы нужно экранировать: \\+, \\?, \\|. В ERE (grep -E) они работают напрямую."
+  },
+  {
+   "q": "Что делает конструкция command 2>&1?",
+   "options": [
+    "Перенаправляет stdin в stdout",
+    "Отправляет вывод в /dev/null",
+    "Объединяет stderr с текущим назначением stdout",
+    "Дублирует stdout в два файла"
+   ],
+   "answer": 2,
+   "explain": "2>&1 говорит: направить поток 2 (stderr) туда же, куда сейчас направлен поток 1 (stdout). Порядок редиректов важен."
+  },
+  {
+   "q": "Зачем нужен флаг -i у sed?",
+   "options": [
+    "Для интерактивного режима с подтверждением",
+    "Для вывода номеров строк",
+    "Для игнорирования регистра",
+    "Для редактирования файла напрямую (in-place)"
+   ],
+   "answer": 3,
+   "explain": "sed -i изменяет файл на месте вместо вывода результата в stdout; рекомендуется указывать суффикс бэкапа, например -i.bak."
+  },
+  {
+   "q": "Как объявляется ассоциативный массив в Bash?",
+   "options": [
+    "dict name",
+    "declare -A name",
+    "hash name",
+    "array()"
+   ],
+   "answer": 1,
+   "explain": "declare -A name явно создаёт ассоциативный массив со строковыми ключами, в отличие от индексных массивов по умолчанию."
+  },
+  {
+   "q": "Какой сигнал в trap срабатывает при ЛЮБОМ завершении скрипта, включая ошибку?",
+   "options": [
+    "KILL",
+    "EXIT",
+    "TERM",
+    "INT"
+   ],
+   "answer": 1,
+   "explain": "trap ... EXIT гарантированно выполняется при любом завершении процесса — успешном, аварийном или по сигналу, что делает его лучшим местом для очистки ресурсов."
+  }
+ ]
+}
