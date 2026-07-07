@@ -1,158 +1,270 @@
 {
- "phase": "Phase 1 — Linux + Bash + Git",
- "section": "🔀 Git & Version Control",
- "topics": [
-  {
-   "title": "Базовые команды: init, clone, add, commit, push, pull, status, diff",
-   "level": "🟢 Junior",
-   "explanation": "<p>Git — распределённая система контроля версий, где у каждого разработчика есть полная копия истории проекта. Базовый цикл работы строится вокруг нескольких команд.</p><p><strong>git init</strong> создаёт новый репозиторий в текущей директории (появляется скрытая папка <code>.git</code>). <strong>git clone</strong> копирует существующий репозиторий с удалённого сервера вместе со всей историей:</p><pre>git clone https://github.com/user/repo.git</pre><p>Далее рабочий цикл: изменяете файлы → добавляете их в <em>staging area</em> командой <code>git add</code> → фиксируете снимок состояния (<em>commit</em>) → отправляете изменения на сервер.</p><pre>git add file.txt\ngit add .                # добавить всё\ngit commit -m 'Fix bug in auth'\ngit push origin main\ngit pull origin main      # получить и влить изменения</pre><p><strong>git status</strong> показывает, какие файлы изменены, добавлены в staging или не отслеживаются. <strong>git diff</strong> показывает построчные различия между рабочей копией и последним коммитом (или между staging и коммитом при <code>git diff --staged</code>).</p><table><tr><th>Команда</th><th>Назначение</th></tr><tr><td>git status</td><td>текущее состояние рабочей директории</td></tr><tr><td>git diff</td><td>построчные изменения</td></tr><tr><td>git add</td><td>перенос файлов в staging</td></tr><tr><td>git commit</td><td>фиксация снимка в историю</td></tr></table><p>Понимание трёх зон Git — <em>working directory</em>, <em>staging area</em> и <em>repository (.git)</em> — ключ к пониманию всех остальных команд.</p>"
-  },
-  {
-   "title": "Ветки: branch, checkout/switch, merge, rebase — основы",
-   "level": "🟢 Junior",
-   "explanation": "<p>Ветка (<em>branch</em>) в Git — это просто указатель на коммит. Ветки позволяют параллельно разрабатывать фичи, не мешая основной линии кода (<code>main</code> или <code>master</code>).</p><pre>git branch feature-x        # создать ветку\ngit checkout feature-x      # переключиться (старый способ)\ngit switch feature-x        # переключиться (новый способ)\ngit checkout -b feature-x   # создать и переключиться одной командой</pre><p>Когда работа в ветке завершена, изменения нужно вернуть в основную ветку. Есть два подхода: <strong>merge</strong> и <strong>rebase</strong>.</p><p><code>git merge</code> создаёт новый merge commit, объединяющий историю двух веток, сохраняя реальный порядок событий:</p><pre>git switch main\ngit merge feature-x</pre><p><code>git rebase</code> переносит коммиты вашей ветки на вершину другой ветки, создавая линейную историю без merge-коммитов:</p><pre>git switch feature-x\ngit rebase main</pre><table><tr><th>Подход</th><th>История</th><th>Когда использовать</th></tr><tr><td>merge</td><td>сохраняет ветвление</td><td>публичные ветки, командная работа</td></tr><tr><td>rebase</td><td>линейная</td><td>локальные ветки перед push, чистка истории</td></tr></table><p><strong>Важно:</strong> никогда не делайте rebase уже опубликованных (запушенных) веток, которые используют другие разработчики — это переписывает историю и ломает чужие клоны.</p>"
-  },
-  {
-   "title": "История: log --oneline --graph, diff, show, blame",
-   "level": "🟢 Junior",
-   "explanation": "<p>Git хранит полную историю проекта, и умение её исследовать — важный практический навык при отладке и code review.</p><p><strong>git log</strong> выводит список коммитов. Часто используемые флаги делают вывод компактным и наглядным:</p><pre>git log --oneline --graph --all --decorate</pre><p>Здесь <code>--oneline</code> — по одной строке на коммит, <code>--graph</code> — визуализация веток символами <code>*</code> и <code>|</code>, <code>--all</code> — показать все ветки, <code>--decorate</code> — имена веток/тегов рядом с коммитами.</p><p><strong>git show</strong> отображает подробности конкретного коммита — сообщение, автора и diff:</p><pre>git show a1b2c3d</pre><p><strong>git diff</strong> сравнивает состояния — рабочую директорию, staging, коммиты между собой:</p><pre>git diff HEAD~1 HEAD       # изменения последнего коммита\ngit diff branch1 branch2   # разница между ветками</pre><p><strong>git blame</strong> показывает, кто и в каком коммите последний раз менял каждую строку файла — незаменим при поиске автора бага:</p><pre>git blame -L 10,20 app.py</pre><table><tr><th>Команда</th><th>Что показывает</th></tr><tr><td>log</td><td>список коммитов</td></tr><tr><td>show</td><td>детали одного коммита</td></tr><tr><td>diff</td><td>построчные различия</td></tr><tr><td>blame</td><td>авторство строк</td></tr></table>"
-  },
-  {
-   "title": "Отмена изменений: reset --soft/hard, revert, stash",
-   "level": "🟢 Junior",
-   "explanation": "<p>Git предоставляет несколько инструментов для отмены изменений, и важно понимать различие между ними, чтобы не потерять работу.</p><p><strong>git reset</strong> перемещает указатель текущей ветки (HEAD) на другой коммит:</p><pre>git reset --soft HEAD~1   # откатить коммит, изменения остаются в staging\ngit reset --mixed HEAD~1  # откатить коммит и unstage (режим по умолчанию)\ngit reset --hard HEAD~1   # откатить коммит И удалить изменения из рабочей директории</pre><p><strong>--hard безвозвратно удаляет несохранённые изменения</strong> — используйте с осторожностью, особенно на публичных ветках.</p><p><strong>git revert</strong> создаёт новый коммит, который отменяет изменения указанного коммита, не переписывая историю — безопасный способ для опубликованных веток:</p><pre>git revert a1b2c3d</pre><p><strong>git stash</strong> временно прячет незакоммиченные изменения, позволяя переключиться на другую задачу и вернуть их позже:</p><pre>git stash                 # сохранить изменения\ngit stash list             # список тайников\ngit stash pop               # вернуть последний тайник и удалить его\ngit stash apply stash@{1}   # применить конкретный тайник, не удаляя</pre><table><tr><th>Команда</th><th>Меняет историю?</th><th>Безопасна для shared-веток?</th></tr><tr><td>reset --hard</td><td>да, теряет данные</td><td>нет</td></tr><tr><td>revert</td><td>нет, добавляет коммит</td><td>да</td></tr><tr><td>stash</td><td>нет, временно</td><td>да (локально)</td></tr></table>"
-  },
-  {
-   "title": "Remote: origin, fetch, pull --rebase, push, fork workflow",
-   "level": "🟢 Junior",
-   "explanation": "<p>Remote — это ссылка на репозиторий, расположенный на другом сервере (GitHub, GitLab, Bitbucket). По умолчанию при клонировании remote называется <strong>origin</strong>.</p><pre>git remote -v                          # показать все remotes\ngit remote add upstream https://github.com/original/repo.git</pre><p><strong>git fetch</strong> скачивает изменения с удалённого репозитория, но <em>не</em> применяет их к вашим локальным веткам — безопасная операция для проверки, что нового:</p><pre>git fetch origin\ngit log origin/main --oneline   # посмотреть, что нового</pre><p><strong>git pull</strong> — это по сути <code>fetch</code> + <code>merge</code>. Флаг <code>--rebase</code> заменяет merge на rebase, сохраняя линейную историю и избегая лишних merge-коммитов:</p><pre>git pull --rebase origin main</pre><p><strong>git push</strong> отправляет локальные коммиты на remote:</p><pre>git push origin feature-x\ngit push -u origin feature-x   # запомнить upstream для будущих push/pull</pre><p><strong>Fork workflow</strong> — стандартный подход для open-source: вы делаете fork (свою копию) чужого репозитория на GitHub, клонируете свой fork, работаете в ветке, пушите в свой fork и открываете Pull Request в оригинальный репозиторий (upstream). Оригинальный репозиторий добавляется как второй remote с именем <code>upstream</code>, чтобы синхронизировать изменения.</p>"
-  },
-  {
-   "title": "Теги: tag -a, push --tags, semantic versioning (v1.2.3)",
-   "level": "🟢 Junior",
-   "explanation": "<p>Теги (<em>tags</em>) — это именованные указатели на конкретные коммиты, обычно используемые для маркировки релизов.</p><p>Существует два типа тегов: <strong>lightweight</strong> (простой указатель без метаданных) и <strong>annotated</strong> (содержит автора, дату, сообщение и может быть подписан GPG — рекомендуется для релизов):</p><pre>git tag v1.0.0                          # lightweight\ngit tag -a v1.2.3 -m 'Release 1.2.3'    # annotated (рекомендуется)</pre><p>По умолчанию теги не отправляются на remote при обычном <code>git push</code> — их нужно пушить отдельно:</p><pre>git push origin v1.2.3       # один тег\ngit push origin --tags        # все теги сразу</pre><p>Просмотр и удаление тегов:</p><pre>git tag -l 'v1.*'          # список с фильтром\ngit show v1.2.3             # детали тега\ngit tag -d v1.0.0            # удалить локально\ngit push origin --delete v1.0.0   # удалить на remote</pre><p><strong>Semantic Versioning (SemVer)</strong> — стандарт нумерации версий вида <code>MAJOR.MINOR.PATCH</code> (например <code>v1.2.3</code>):</p><table><tr><th>Компонент</th><th>Когда увеличивается</th></tr><tr><td>MAJOR (1)</td><td>несовместимые изменения API (breaking changes)</td></tr><tr><td>MINOR (2)</td><td>новая функциональность с обратной совместимостью</td></tr><tr><td>PATCH (3)</td><td>исправления багов без изменения API</td></tr></table><p>Такой подход позволяет пользователям библиотек и сервисов заранее оценить риски обновления по одному только номеру версии.</p>"
-  },
-  {
-   "title": "Git flow / trunk-based development: стратегии ветвления",
-   "level": "🟡 Middle",
-   "explanation": "<p>Стратегия ветвления определяет, как команда организует работу с ветками, релизами и слияниями. Два самых распространённых подхода — <strong>Git Flow</strong> и <strong>trunk-based development</strong>.</p><p><strong>Git Flow</strong> использует несколько долгоживущих веток с чётким назначением:</p><ul><li><code>main</code>/<code>master</code> — production-ready код</li><li><code>develop</code> — интеграционная ветка для следующего релиза</li><li><code>feature/*</code> — ветки для новых фич, отходят от develop</li><li><code>release/*</code> — стабилизация перед релизом</li><li><code>hotfix/*</code> — срочные исправления прямо от main</li></ul><pre>git checkout -b feature/user-auth develop\n# ... работа ...\ngit checkout develop\ngit merge feature/user-auth</pre><p>Git Flow хорошо подходит для проектов с редкими релизами и версионированным ПО (десктопные приложения, библиотеки), но избыточен для непрерывного деплоя.</p><p><strong>Trunk-based development</strong> — противоположный подход: все разработчики коммитят в одну общую ветку (<code>main</code>/<code>trunk</code>) часто и небольшими порциями. Feature-ветки живут максимум 1-2 дня, а незавершённый функционал скрывается за feature flags, а не долгоживущими ветками.</p><pre>git checkout -b quick-fix main\n# работа, коммит в течение часов\ngit checkout main\ngit merge --no-ff quick-fix\ngit push origin main</pre><table><tr><th>Критерий</th><th>Git Flow</th><th>Trunk-based</th></tr><tr><td>CI/CD</td><td>сложнее</td><td>идеально подходит</td></tr><tr><td>Размер команды</td><td>любой</td><td>требует дисциплины</td></tr><tr><td>Частота релизов</td><td>редкая</td><td>непрерывная (CD)</td></tr></table><p>Большинство современных DevOps-команд с CI/CD выбирают trunk-based подход, так как он минимизирует merge-конфликты и ускоряет доставку.</p>"
-  },
-  {
-   "title": "Git hooks: pre-commit, commit-msg, pre-push",
-   "level": "🟡 Middle",
-   "explanation": "<p>Git hooks — это скрипты, которые Git автоматически запускает на определённых событиях жизненного цикла (коммит, push и т.д.). Они хранятся в директории <code>.git/hooks/</code> и по умолчанию не попадают в репозиторий при клонировании — их нужно устанавливать отдельно или через специальные фреймворки.</p><p><strong>pre-commit</strong> запускается перед созданием коммита, до того как редактор сообщения открывается. Используется для линтинга, форматирования кода, запуска быстрых тестов. Если скрипт завершается с ненулевым кодом — коммит блокируется:</p><pre>#!/bin/sh\n# .git/hooks/pre-commit\nnpm run lint || exit 1</pre><p><strong>commit-msg</strong> получает путь к файлу с сообщением коммита и может проверить/изменить его формат — например, требовать соответствия Conventional Commits (<code>feat:</code>, <code>fix:</code>):</p><pre>#!/bin/sh\ngrep -qE '^(feat|fix|chore|docs)(\\(.+\\))?: .+' \"$1\" || {\n  echo 'Commit message must follow Conventional Commits'; exit 1;\n}</pre><p><strong>pre-push</strong> запускается перед отправкой коммитов на remote — хорошее место для запуска полного набора тестов или проверки, что не пушится в защищённую ветку.</p><p>На практике вместо ручного написания хуков используют фреймворк <strong>pre-commit</strong> (Python-инструмент, несмотря на совпадение имени с типом хука) или Node.js-аналог <strong>Husky</strong> — они хранят конфигурацию в репозитории и автоматически устанавливают хуки для всех разработчиков:</p><pre>pre-commit install\n# .pre-commit-config.yaml описывает какие проверки запускать</pre><p>Git hooks — важный инструмент shift-left подхода: ошибки ловятся локально до того, как попадут в CI/CD pipeline.</p>"
-  }
- ],
- "quiz": [
-  {
-   "q": "Какая команда переносит коммиты текущей ветки на вершину другой ветки, создавая линейную историю без merge-коммитов?",
-   "options": [
-    "git merge",
-    "git cherry-pick",
-    "git rebase",
-    "git stash"
-   ],
-   "answer": 2,
-   "explain": "git rebase переносит коммиты вашей ветки на вершину другой, создавая линейную историю. git merge, напротив, создаёт отдельный merge-коммит и сохраняет ветвление."
-  },
-  {
-   "q": "Что произойдёт при выполнении git reset --hard HEAD~1?",
-   "options": [
-    "Коммит откатится, но изменения останутся в staging area",
-    "Коммит откатится, изменения останутся только в рабочей директории",
-    "Коммит откатится, и все несохранённые изменения будут безвозвратно удалены",
-    "Будет создан новый коммит, отменяющий предыдущий"
-   ],
-   "answer": 2,
-   "explain": "--hard перемещает HEAD и полностью перезаписывает рабочую директорию и staging area, безвозвратно удаляя изменения. Для сохранения истории используйте git revert."
-  },
-  {
-   "q": "В чём принципиальное отличие git revert от git reset при работе с уже опубликованной (запушенной) веткой?",
-   "options": [
-    "revert работает только с тегами, а reset — с коммитами",
-    "revert создаёт новый коммит-отмену, не переписывая историю, поэтому безопасен для shared-веток",
-    "reset безопаснее, так как не удаляет данные",
-    "Между ними нет разницы, обе команды идентичны"
-   ],
-   "answer": 1,
-   "explain": "git revert добавляет новый коммит, отменяющий изменения, сохраняя историю неизменной — это безопасно для веток, которыми пользуются другие. git reset переписывает указатель ветки и опасен для shared-истории."
-  },
-  {
-   "q": "Какая команда временно прячет незакоммиченные изменения, позволяя вернуться к ним позже?",
-   "options": [
-    "git stash",
-    "git fetch",
-    "git tag",
-    "git blame"
-   ],
-   "answer": 0,
-   "explain": "git stash сохраняет незакоммиченные изменения в отдельном тайнике и очищает рабочую директорию. Вернуть их можно командой git stash pop или git stash apply."
-  },
-  {
-   "q": "Чем git fetch отличается от git pull?",
-   "options": [
-    "fetch скачивает изменения без применения к локальным веткам, pull — это fetch + merge",
-    "fetch применяет изменения сразу, а pull только скачивает",
-    "Это два одинаковых алиаса одной команды",
-    "fetch работает только с тегами"
-   ],
-   "answer": 0,
-   "explain": "git fetch безопасно скачивает данные с remote, не трогая рабочую ветку. git pull — это fetch, сразу за которым следует merge (или rebase с флагом --rebase) в текущую ветку."
-  },
-  {
-   "q": "Согласно Semantic Versioning, при каком изменении версии MINOR-номер (например 1.2.3 → 1.3.0) должен увеличиваться?",
-   "options": [
-    "При исправлении бага без изменения API",
-    "При добавлении новой функциональности с сохранением обратной совместимости",
-    "При любом коммите в main",
-    "Только при breaking changes"
-   ],
-   "answer": 1,
-   "explain": "MINOR увеличивается при добавлении новой обратно совместимой функциональности. PATCH — для багфиксов, MAJOR — для breaking changes, несовместимых с прежним API."
-  },
-  {
-   "q": "Какая ветка в классическом Git Flow предназначена для срочных исправлений production-багов и создаётся напрямую от main?",
-   "options": [
-    "feature/*",
-    "release/*",
-    "develop",
-    "hotfix/*"
-   ],
-   "answer": 3,
-   "explain": "hotfix/* ветки создаются от main для срочного исправления критичных production-багов, минуя обычный цикл через develop, и затем вливаются как в main, так и в develop."
-  },
-  {
-   "q": "В чём основная идея trunk-based development по сравнению с Git Flow?",
-   "options": [
-    "Использование множества долгоживущих веток для каждой фичи",
-    "Частые небольшие коммиты в одну общую ветку, скрытие незавершённого функционала за feature flags",
-    "Полный отказ от использования веток вообще",
-    "Обязательное использование только rebase, никогда merge"
-   ],
-   "answer": 1,
-   "explain": "Trunk-based development предполагает частую интеграцию небольших изменений в общую ветку (trunk/main), а незавершённые фичи скрываются feature flags, а не изолируются в долгоживущих ветках."
-  },
-  {
-   "q": "На каком этапе жизненного цикла срабатывает Git hook pre-commit?",
-   "options": [
-    "После успешного push на remote",
-    "Перед созданием коммита, до открытия редактора сообщения",
-    "После merge веток",
-    "При клонировании репозитория"
-   ],
-   "answer": 1,
-   "explain": "pre-commit запускается перед фиксацией коммита и может заблокировать его (например, если линтер нашёл ошибки), завершившись с ненулевым кодом возврата."
-  },
-  {
-   "q": "Какой командой можно посмотреть, кто последним изменил каждую строку файла и в каком коммите?",
-   "options": [
-    "git log --oneline",
-    "git diff",
-    "git blame",
-    "git show"
-   ],
-   "answer": 2,
-   "explain": "git blame выводит построчную аннотацию файла с указанием коммита и автора последнего изменения каждой строки — полезно при поиске причины появления бага."
-  }
- ]
+  "phase": "Phase 1 — Linux + Bash + Git",
+  "section": "🔀 Git & Version Control",
+  "topics": [
+    {
+      "title": "Базовые команды: init, clone, add, commit, push, pull, status, diff",
+      "level": "🟢 Junior",
+      "explanation": "<p>Git — распределённая система контроля версий, где у каждого разработчика есть полная копия истории проекта. Базовый цикл работы строится вокруг нескольких команд.</p><p><strong>git init</strong> создаёт новый репозиторий в текущей директории (появляется скрытая папка <code>.git</code>). <strong>git clone</strong> копирует существующий репозиторий с удалённого сервера вместе со всей историей:</p><pre>git clone https://github.com/user/repo.git</pre><p>Далее рабочий цикл: изменяете файлы → добавляете их в <em>staging area</em> командой <code>git add</code> → фиксируете снимок состояния (<em>commit</em>) → отправляете изменения на сервер.</p><pre>git add file.txt\ngit add .                # добавить всё\ngit commit -m 'Fix bug in auth'\ngit push origin main\ngit pull origin main      # получить и влить изменения</pre><p><strong>git status</strong> показывает, какие файлы изменены, добавлены в staging или не отслеживаются. <strong>git diff</strong> показывает построчные различия между рабочей копией и последним коммитом (или между staging и коммитом при <code>git diff --staged</code>).</p><table><tr><th>Команда</th><th>Назначение</th></tr><tr><td>git status</td><td>текущее состояние рабочей директории</td></tr><tr><td>git diff</td><td>построчные изменения</td></tr><tr><td>git add</td><td>перенос файлов в staging</td></tr><tr><td>git commit</td><td>фиксация снимка в историю</td></tr></table><p>Понимание трёх зон Git — <em>working directory</em>, <em>staging area</em> и <em>repository (.git)</em> — ключ к пониманию всех остальных команд.</p>",
+      "links": [
+        {
+          "title": "Git Basics — официальный туториал по базовым командам",
+          "url": "https://git-scm.com/book/en/v2/Git-Basics-Getting-a-Git-Repository"
+        },
+        {
+          "title": "git-commit — справочник по man-странице команды",
+          "url": "https://git-scm.com/docs/git-commit"
+        },
+        {
+          "title": "Pro Git — бесплатная книга по Git",
+          "url": "https://git-scm.com/book/ru/v2"
+        }
+      ]
+    },
+    {
+      "title": "Ветки: branch, checkout/switch, merge, rebase — основы",
+      "level": "🟢 Junior",
+      "explanation": "<p>Ветка (<em>branch</em>) в Git — это просто указатель на коммит. Ветки позволяют параллельно разрабатывать фичи, не мешая основной линии кода (<code>main</code> или <code>master</code>).</p><pre>git branch feature-x        # создать ветку\ngit checkout feature-x      # переключиться (старый способ)\ngit switch feature-x        # переключиться (новый способ)\ngit checkout -b feature-x   # создать и переключиться одной командой</pre><p>Когда работа в ветке завершена, изменения нужно вернуть в основную ветку. Есть два подхода: <strong>merge</strong> и <strong>rebase</strong>.</p><p><code>git merge</code> создаёт новый merge commit, объединяющий историю двух веток, сохраняя реальный порядок событий:</p><pre>git switch main\ngit merge feature-x</pre><p><code>git rebase</code> переносит коммиты вашей ветки на вершину другой ветки, создавая линейную историю без merge-коммитов:</p><pre>git switch feature-x\ngit rebase main</pre><table><tr><th>Подход</th><th>История</th><th>Когда использовать</th></tr><tr><td>merge</td><td>сохраняет ветвление</td><td>публичные ветки, командная работа</td></tr><tr><td>rebase</td><td>линейная</td><td>локальные ветки перед push, чистка истории</td></tr></table><p><strong>Важно:</strong> никогда не делайте rebase уже опубликованных (запушенных) веток, которые используют другие разработчики — это переписывает историю и ломает чужие клоны.</p>",
+      "links": [
+        {
+          "title": "Git Branching — официальная глава Pro Git о ветках",
+          "url": "https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell"
+        },
+        {
+          "title": "git-switch — документация по переключению веток",
+          "url": "https://git-scm.com/docs/git-switch"
+        },
+        {
+          "title": "git-rebase — официальный справочник по rebase",
+          "url": "https://git-scm.com/docs/git-rebase"
+        }
+      ]
+    },
+    {
+      "title": "История: log --oneline --graph, diff, show, blame",
+      "level": "🟢 Junior",
+      "explanation": "<p>Git хранит полную историю проекта, и умение её исследовать — важный практический навык при отладке и code review.</p><p><strong>git log</strong> выводит список коммитов. Часто используемые флаги делают вывод компактным и наглядным:</p><pre>git log --oneline --graph --all --decorate</pre><p>Здесь <code>--oneline</code> — по одной строке на коммит, <code>--graph</code> — визуализация веток символами <code>*</code> и <code>|</code>, <code>--all</code> — показать все ветки, <code>--decorate</code> — имена веток/тегов рядом с коммитами.</p><p><strong>git show</strong> отображает подробности конкретного коммита — сообщение, автора и diff:</p><pre>git show a1b2c3d</pre><p><strong>git diff</strong> сравнивает состояния — рабочую директорию, staging, коммиты между собой:</p><pre>git diff HEAD~1 HEAD       # изменения последнего коммита\ngit diff branch1 branch2   # разница между ветками</pre><p><strong>git blame</strong> показывает, кто и в каком коммите последний раз менял каждую строку файла — незаменим при поиске автора бага:</p><pre>git blame -L 10,20 app.py</pre><table><tr><th>Команда</th><th>Что показывает</th></tr><tr><td>log</td><td>список коммитов</td></tr><tr><td>show</td><td>детали одного коммита</td></tr><tr><td>diff</td><td>построчные различия</td></tr><tr><td>blame</td><td>авторство строк</td></tr></table>",
+      "links": [
+        {
+          "title": "Viewing the Commit History — глава Pro Git про git log",
+          "url": "https://git-scm.com/book/en/v2/Git-Basics-Viewing-the-Commit-History"
+        },
+        {
+          "title": "git-log — официальная документация всех флагов",
+          "url": "https://git-scm.com/docs/git-log"
+        },
+        {
+          "title": "git-blame — официальная документация команды",
+          "url": "https://git-scm.com/docs/git-blame"
+        }
+      ]
+    },
+    {
+      "title": "Отмена изменений: reset --soft/hard, revert, stash",
+      "level": "🟢 Junior",
+      "explanation": "<p>Git предоставляет несколько инструментов для отмены изменений, и важно понимать различие между ними, чтобы не потерять работу.</p><p><strong>git reset</strong> перемещает указатель текущей ветки (HEAD) на другой коммит:</p><pre>git reset --soft HEAD~1   # откатить коммит, изменения остаются в staging\ngit reset --mixed HEAD~1  # откатить коммит и unstage (режим по умолчанию)\ngit reset --hard HEAD~1   # откатить коммит И удалить изменения из рабочей директории</pre><p><strong>--hard безвозвратно удаляет несохранённые изменения</strong> — используйте с осторожностью, особенно на публичных ветках.</p><p><strong>git revert</strong> создаёт новый коммит, который отменяет изменения указанного коммита, не переписывая историю — безопасный способ для опубликованных веток:</p><pre>git revert a1b2c3d</pre><p><strong>git stash</strong> временно прячет незакоммиченные изменения, позволяя переключиться на другую задачу и вернуть их позже:</p><pre>git stash                 # сохранить изменения\ngit stash list             # список тайников\ngit stash pop               # вернуть последний тайник и удалить его\ngit stash apply stash@{1}   # применить конкретный тайник, не удаляя</pre><table><tr><th>Команда</th><th>Меняет историю?</th><th>Безопасна для shared-веток?</th></tr><tr><td>reset --hard</td><td>да, теряет данные</td><td>нет</td></tr><tr><td>revert</td><td>нет, добавляет коммит</td><td>да</td></tr><tr><td>stash</td><td>нет, временно</td><td>да (локально)</td></tr></table>",
+      "links": [
+        {
+          "title": "Reset Demystified — официальное объяснение git reset",
+          "url": "https://git-scm.com/book/en/v2/Git-Tools-Reset-Demystified"
+        },
+        {
+          "title": "git-revert — официальная документация команды",
+          "url": "https://git-scm.com/docs/git-revert"
+        },
+        {
+          "title": "Stashing and Cleaning — глава Pro Git про git stash",
+          "url": "https://git-scm.com/book/en/v2/Git-Tools-Stashing-and-Cleaning"
+        }
+      ]
+    },
+    {
+      "title": "Remote: origin, fetch, pull --rebase, push, fork workflow",
+      "level": "🟢 Junior",
+      "explanation": "<p>Remote — это ссылка на репозиторий, расположенный на другом сервере (GitHub, GitLab, Bitbucket). По умолчанию при клонировании remote называется <strong>origin</strong>.</p><pre>git remote -v                          # показать все remotes\ngit remote add upstream https://github.com/original/repo.git</pre><p><strong>git fetch</strong> скачивает изменения с удалённого репозитория, но <em>не</em> применяет их к вашим локальным веткам — безопасная операция для проверки, что нового:</p><pre>git fetch origin\ngit log origin/main --oneline   # посмотреть, что нового</pre><p><strong>git pull</strong> — это по сути <code>fetch</code> + <code>merge</code>. Флаг <code>--rebase</code> заменяет merge на rebase, сохраняя линейную историю и избегая лишних merge-коммитов:</p><pre>git pull --rebase origin main</pre><p><strong>git push</strong> отправляет локальные коммиты на remote:</p><pre>git push origin feature-x\ngit push -u origin feature-x   # запомнить upstream для будущих push/pull</pre><p><strong>Fork workflow</strong> — стандартный подход для open-source: вы делаете fork (свою копию) чужого репозитория на GitHub, клонируете свой fork, работаете в ветке, пушите в свой fork и открываете Pull Request в оригинальный репозиторий (upstream). Оригинальный репозиторий добавляется как второй remote с именем <code>upstream</code>, чтобы синхронизировать изменения.</p>",
+      "links": [
+        {
+          "title": "Working with Remotes — глава Pro Git про remote-репозитории",
+          "url": "https://git-scm.com/book/en/v2/Git-Basics-Working-with-Remotes"
+        },
+        {
+          "title": "git-pull — официальная документация, включая --rebase",
+          "url": "https://git-scm.com/docs/git-pull"
+        },
+        {
+          "title": "GitHub Docs: Fork a repo — официальное руководство по fork workflow",
+          "url": "https://docs.github.com/en/get-started/quickstart/fork-a-repo"
+        }
+      ]
+    },
+    {
+      "title": "Теги: tag -a, push --tags, semantic versioning (v1.2.3)",
+      "level": "🟢 Junior",
+      "explanation": "<p>Теги (<em>tags</em>) — это именованные указатели на конкретные коммиты, обычно используемые для маркировки релизов.</p><p>Существует два типа тегов: <strong>lightweight</strong> (простой указатель без метаданных) и <strong>annotated</strong> (содержит автора, дату, сообщение и может быть подписан GPG — рекомендуется для релизов):</p><pre>git tag v1.0.0                          # lightweight\ngit tag -a v1.2.3 -m 'Release 1.2.3'    # annotated (рекомендуется)</pre><p>По умолчанию теги не отправляются на remote при обычном <code>git push</code> — их нужно пушить отдельно:</p><pre>git push origin v1.2.3       # один тег\ngit push origin --tags        # все теги сразу</pre><p>Просмотр и удаление тегов:</p><pre>git tag -l 'v1.*'          # список с фильтром\ngit show v1.2.3             # детали тега\ngit tag -d v1.0.0            # удалить локально\ngit push origin --delete v1.0.0   # удалить на remote</pre><p><strong>Semantic Versioning (SemVer)</strong> — стандарт нумерации версий вида <code>MAJOR.MINOR.PATCH</code> (например <code>v1.2.3</code>):</p><table><tr><th>Компонент</th><th>Когда увеличивается</th></tr><tr><td>MAJOR (1)</td><td>несовместимые изменения API (breaking changes)</td></tr><tr><td>MINOR (2)</td><td>новая функциональность с обратной совместимостью</td></tr><tr><td>PATCH (3)</td><td>исправления багов без изменения API</td></tr></table><p>Такой подход позволяет пользователям библиотек и сервисов заранее оценить риски обновления по одному только номеру версии.</p>",
+      "links": [
+        {
+          "title": "Git Basics — Tagging — официальная глава про теги",
+          "url": "https://git-scm.com/book/en/v2/Git-Basics-Tagging"
+        },
+        {
+          "title": "git-tag — официальная документация команды",
+          "url": "https://git-scm.com/docs/git-tag"
+        },
+        {
+          "title": "Semantic Versioning 2.0.0 — официальная спецификация SemVer",
+          "url": "https://semver.org/"
+        }
+      ]
+    },
+    {
+      "title": "Git flow / trunk-based development: стратегии ветвления",
+      "level": "🟡 Middle",
+      "explanation": "<p>Стратегия ветвления определяет, как команда организует работу с ветками, релизами и слияниями. Два самых распространённых подхода — <strong>Git Flow</strong> и <strong>trunk-based development</strong>.</p><p><strong>Git Flow</strong> использует несколько долгоживущих веток с чётким назначением:</p><ul><li><code>main</code>/<code>master</code> — production-ready код</li><li><code>develop</code> — интеграционная ветка для следующего релиза</li><li><code>feature/*</code> — ветки для новых фич, отходят от develop</li><li><code>release/*</code> — стабилизация перед релизом</li><li><code>hotfix/*</code> — срочные исправления прямо от main</li></ul><pre>git checkout -b feature/user-auth develop\n# ... работа ...\ngit checkout develop\ngit merge feature/user-auth</pre><p>Git Flow хорошо подходит для проектов с редкими релизами и версионированным ПО (десктопные приложения, библиотеки), но избыточен для непрерывного деплоя.</p><p><strong>Trunk-based development</strong> — противоположный подход: все разработчики коммитят в одну общую ветку (<code>main</code>/<code>trunk</code>) часто и небольшими порциями. Feature-ветки живут максимум 1-2 дня, а незавершённый функционал скрывается за feature flags, а не долгоживущими ветками.</p><pre>git checkout -b quick-fix main\n# работа, коммит в течение часов\ngit checkout main\ngit merge --no-ff quick-fix\ngit push origin main</pre><table><tr><th>Критерий</th><th>Git Flow</th><th>Trunk-based</th></tr><tr><td>CI/CD</td><td>сложнее</td><td>идеально подходит</td></tr><tr><td>Размер команды</td><td>любой</td><td>требует дисциплины</td></tr><tr><td>Частота релизов</td><td>редкая</td><td>непрерывная (CD)</td></tr></table><p>Большинство современных DevOps-команд с CI/CD выбирают trunk-based подход, так как он минимизирует merge-конфликты и ускоряет доставку.</p>",
+      "links": [
+        {
+          "title": "Trunk Based Development — официальный сайт методологии",
+          "url": "https://trunkbaseddevelopment.com/"
+        },
+        {
+          "title": "Atlassian: Gitflow Workflow — описание модели ветвления",
+          "url": "https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow"
+        },
+        {
+          "title": "Atlassian: Comparing Workflows — обзор разных стратегий ветвления",
+          "url": "https://www.atlassian.com/git/tutorials/comparing-workflows"
+        }
+      ]
+    },
+    {
+      "title": "Git hooks: pre-commit, commit-msg, pre-push",
+      "level": "🟡 Middle",
+      "explanation": "<p>Git hooks — это скрипты, которые Git автоматически запускает на определённых событиях жизненного цикла (коммит, push и т.д.). Они хранятся в директории <code>.git/hooks/</code> и по умолчанию не попадают в репозиторий при клонировании — их нужно устанавливать отдельно или через специальные фреймворки.</p><p><strong>pre-commit</strong> запускается перед созданием коммита, до того как редактор сообщения открывается. Используется для линтинга, форматирования кода, запуска быстрых тестов. Если скрипт завершается с ненулевым кодом — коммит блокируется:</p><pre>#!/bin/sh\n# .git/hooks/pre-commit\nnpm run lint || exit 1</pre><p><strong>commit-msg</strong> получает путь к файлу с сообщением коммита и может проверить/изменить его формат — например, требовать соответствия Conventional Commits (<code>feat:</code>, <code>fix:</code>):</p><pre>#!/bin/sh\ngrep -qE '^(feat|fix|chore|docs)(\\(.+\\))?: .+' \"$1\" || {\n  echo 'Commit message must follow Conventional Commits'; exit 1;\n}</pre><p><strong>pre-push</strong> запускается перед отправкой коммитов на remote — хорошее место для запуска полного набора тестов или проверки, что не пушится в защищённую ветку.</p><p>На практике вместо ручного написания хуков используют фреймворк <strong>pre-commit</strong> (Python-инструмент, несмотря на совпадение имени с типом хука) или Node.js-аналог <strong>Husky</strong> — они хранят конфигурацию в репозитории и автоматически устанавливают хуки для всех разработчиков:</p><pre>pre-commit install\n# .pre-commit-config.yaml описывает какие проверки запускать</pre><p>Git hooks — важный инструмент shift-left подхода: ошибки ловятся локально до того, как попадут в CI/CD pipeline.</p>",
+      "links": [
+        {
+          "title": "Git Hooks — официальная глава Pro Git",
+          "url": "https://git-scm.com/book/en/v2/Customizing-Git-Git-Hooks"
+        },
+        {
+          "title": "githooks — man-страница со списком всех хуков",
+          "url": "https://git-scm.com/docs/githooks"
+        },
+        {
+          "title": "pre-commit — официальная документация фреймворка",
+          "url": "https://pre-commit.com/"
+        }
+      ]
+    }
+  ],
+  "quiz": [
+    {
+      "q": "Какая команда переносит коммиты текущей ветки на вершину другой ветки, создавая линейную историю без merge-коммитов?",
+      "options": [
+        "git merge",
+        "git cherry-pick",
+        "git rebase",
+        "git stash"
+      ],
+      "answer": 2,
+      "explain": "git rebase переносит коммиты вашей ветки на вершину другой, создавая линейную историю. git merge, напротив, создаёт отдельный merge-коммит и сохраняет ветвление."
+    },
+    {
+      "q": "Что произойдёт при выполнении git reset --hard HEAD~1?",
+      "options": [
+        "Коммит откатится, но изменения останутся в staging area",
+        "Коммит откатится, изменения останутся только в рабочей директории",
+        "Коммит откатится, и все несохранённые изменения будут безвозвратно удалены",
+        "Будет создан новый коммит, отменяющий предыдущий"
+      ],
+      "answer": 2,
+      "explain": "--hard перемещает HEAD и полностью перезаписывает рабочую директорию и staging area, безвозвратно удаляя изменения. Для сохранения истории используйте git revert."
+    },
+    {
+      "q": "В чём принципиальное отличие git revert от git reset при работе с уже опубликованной (запушенной) веткой?",
+      "options": [
+        "revert работает только с тегами, а reset — с коммитами",
+        "revert создаёт новый коммит-отмену, не переписывая историю, поэтому безопасен для shared-веток",
+        "reset безопаснее, так как не удаляет данные",
+        "Между ними нет разницы, обе команды идентичны"
+      ],
+      "answer": 1,
+      "explain": "git revert добавляет новый коммит, отменяющий изменения, сохраняя историю неизменной — это безопасно для веток, которыми пользуются другие. git reset переписывает указатель ветки и опасен для shared-истории."
+    },
+    {
+      "q": "Какая команда временно прячет незакоммиченные изменения, позволяя вернуться к ним позже?",
+      "options": [
+        "git stash",
+        "git fetch",
+        "git tag",
+        "git blame"
+      ],
+      "answer": 0,
+      "explain": "git stash сохраняет незакоммиченные изменения в отдельном тайнике и очищает рабочую директорию. Вернуть их можно командой git stash pop или git stash apply."
+    },
+    {
+      "q": "Чем git fetch отличается от git pull?",
+      "options": [
+        "fetch скачивает изменения без применения к локальным веткам, pull — это fetch + merge",
+        "fetch применяет изменения сразу, а pull только скачивает",
+        "Это два одинаковых алиаса одной команды",
+        "fetch работает только с тегами"
+      ],
+      "answer": 0,
+      "explain": "git fetch безопасно скачивает данные с remote, не трогая рабочую ветку. git pull — это fetch, сразу за которым следует merge (или rebase с флагом --rebase) в текущую ветку."
+    },
+    {
+      "q": "Согласно Semantic Versioning, при каком изменении версии MINOR-номер (например 1.2.3 → 1.3.0) должен увеличиваться?",
+      "options": [
+        "При исправлении бага без изменения API",
+        "При добавлении новой функциональности с сохранением обратной совместимости",
+        "При любом коммите в main",
+        "Только при breaking changes"
+      ],
+      "answer": 1,
+      "explain": "MINOR увеличивается при добавлении новой обратно совместимой функциональности. PATCH — для багфиксов, MAJOR — для breaking changes, несовместимых с прежним API."
+    },
+    {
+      "q": "Какая ветка в классическом Git Flow предназначена для срочных исправлений production-багов и создаётся напрямую от main?",
+      "options": [
+        "feature/*",
+        "release/*",
+        "develop",
+        "hotfix/*"
+      ],
+      "answer": 3,
+      "explain": "hotfix/* ветки создаются от main для срочного исправления критичных production-багов, минуя обычный цикл через develop, и затем вливаются как в main, так и в develop."
+    },
+    {
+      "q": "В чём основная идея trunk-based development по сравнению с Git Flow?",
+      "options": [
+        "Использование множества долгоживущих веток для каждой фичи",
+        "Частые небольшие коммиты в одну общую ветку, скрытие незавершённого функционала за feature flags",
+        "Полный отказ от использования веток вообще",
+        "Обязательное использование только rebase, никогда merge"
+      ],
+      "answer": 1,
+      "explain": "Trunk-based development предполагает частую интеграцию небольших изменений в общую ветку (trunk/main), а незавершённые фичи скрываются feature flags, а не изолируются в долгоживущих ветках."
+    },
+    {
+      "q": "На каком этапе жизненного цикла срабатывает Git hook pre-commit?",
+      "options": [
+        "После успешного push на remote",
+        "Перед созданием коммита, до открытия редактора сообщения",
+        "После merge веток",
+        "При клонировании репозитория"
+      ],
+      "answer": 1,
+      "explain": "pre-commit запускается перед фиксацией коммита и может заблокировать его (например, если линтер нашёл ошибки), завершившись с ненулевым кодом возврата."
+    },
+    {
+      "q": "Какой командой можно посмотреть, кто последним изменил каждую строку файла и в каком коммите?",
+      "options": [
+        "git log --oneline",
+        "git diff",
+        "git blame",
+        "git show"
+      ],
+      "answer": 2,
+      "explain": "git blame выводит построчную аннотацию файла с указанием коммита и автора последнего изменения каждой строки — полезно при поиске причины появления бага."
+    }
+  ]
 }

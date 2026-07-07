@@ -1,160 +1,272 @@
 {
- "phase": "Phase 5 — SRE Practices",
- "section": "📐 SLO / SLI / SLA / Error Budget",
- "topics": [
-  {
-   "title": "SLI: что измеряем — availability, latency p50/p95/p99, error rate",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>SLI (Service Level Indicator)</strong> — конкретная измеримая метрика, отражающая качество сервиса с точки зрения пользователя. SLI не путать со SLO — SLI это <em>измерение</em>, SLO это <em>цель</em> для этого измерения.</p><ul><li><strong>Availability</strong> — доля успешных запросов: <code>good_requests / total_requests * 100%</code></li><li><strong>Latency percentiles</strong> — p50 (медиана), p95, p99 показывают время отклика для 50%, 95%, 99% запросов соответственно. p99 важен, так как показывает «хвостовые» проблемы, скрытые средним значением</li><li><strong>Error rate</strong> — доля запросов с ошибками (HTTP 5xx): <code>errors / total_requests</code></li></ul><p>Пример расчёта availability SLI: за сутки было 1 000 000 запросов, из них 999 500 успешных.</p><pre><code>SLI = 999500 / 1000000 * 100% = 99.95%</code></pre><p>Пример latency SLI: если из 10 000 запросов 9 900 отработали быстрее 200мс, то p99 latency &lt;= 200мс.</p><table><tr><th>Метрика</th><th>Что показывает</th><th>Пример</th></tr><tr><td>Availability</td><td>Доступность сервиса</td><td>99.95%</td></tr><tr><td>Latency p95</td><td>95% запросов быстрее X</td><td>150мс</td></tr><tr><td>Error rate</td><td>Доля ошибок</td><td>0.05%</td></tr></table><p>Хорошие SLI должны быть <strong>измеримы автоматически</strong> (Prometheus, APM), отражать реальный пользовательский опыт, а не внутренние детали инфраструктуры.</p>"
-  },
-  {
-   "title": "SLO: внутренние цели — 99.9% = 8.7 ч/год downtime, 99.99% = 52 мин",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>SLO (Service Level Objective)</strong> — внутренняя целевая величина для SLI, зафиксированная командой как ориентир качества. SLO не является юридическим обязательством (в отличие от SLA), это рабочая договорённость внутри организации.</p><p>Ключевая формула для расчёта допустимого downtime за год (365 дней = 8760 часов = 525600 минут):</p><pre><code>Downtime = (1 - SLO) * общее_время</code></pre><table><tr><th>SLO (%)</th><th>Допустимый downtime / год</th><th>/ месяц</th></tr><tr><td>99%</td><td>3.65 дня</td><td>~7.3 ч</td></tr><tr><td>99.9%</td><td>8.7 часов</td><td>~43.8 мин</td></tr><tr><td>99.95%</td><td>4.38 часов</td><td>~21.9 мин</td></tr><tr><td>99.99%</td><td>52.6 минут</td><td>~4.4 мин</td></tr><tr><td>99.999%</td><td>5.26 минут</td><td>~26 сек</td></tr></table><p>Расчёт для 99.99%: <code>(1 - 0.9999) * 525600 мин = 52.56 мин/год</code>.</p><p>Важно: SLO должен быть <strong>достижимым и экономически обоснованным</strong> — стремление к 99.999% («five nines») требует кратно больших затрат на инфраструктуру, multi-region репликацию и automation, поэтому SLO выбирается исходя из бизнес-требований, а не «чем выше — тем лучше».</p><p>SLO обычно устанавливается <strong>ниже</strong> реального наблюдаемого уровня, чтобы оставить error budget для экспериментов и деплоев.</p>"
-  },
-  {
-   "title": "SLA: внешние обязательства с штрафами/кредитами при нарушении",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>SLA (Service Level Agreement)</strong> — формальный контракт между поставщиком услуги и клиентом, описывающий гарантированный уровень сервиса и последствия при его нарушении (штрафы, кредиты, компенсации).</p><ul><li>SLA — юридический документ, часто часть коммерческого договора</li><li>SLO — внутренняя цель команды, обычно строже чем SLA (запас на ошибку)</li><li>SLI — метрика, по которой измеряется выполнение SLO/SLA</li></ul><p>Типичное соотношение: <strong>SLI &le; SLO &le; SLA</strong> по строгости, то есть внутренний SLO жёстче, чем внешний SLA — это даёт «буфер безопасности» до того, как компания понесёт финансовые последствия.</p><p>Пример из практики AWS: SLA на EC2 гарантирует 99.99% доступности в регионе; при нарушении клиент получает service credit (например, 10% от месячного счёта при доступности 99.0%–99.99%, 30% при &lt;99.0%).</p><pre><code>Если SLA = 99.9% (43.8 мин/мес допустимого простоя)\n  и SLO = 99.95% (21.9 мин/мес) -- внутренняя цель,\n  то есть 21.9 мин \"запаса\" до нарушения контракта</code></pre><table><tr><th>Тип</th><th>Аудитория</th><th>Последствия</th></tr><tr><td>SLI</td><td>Инженеры</td><td>Нет, просто метрика</td></tr><tr><td>SLO</td><td>Команда/продукт</td><td>Замедление деплоев (error budget)</td></tr><tr><td>SLA</td><td>Клиент/юристы</td><td>Штрафы, кредиты, репутация</td></tr></table><p>SRE-команды обычно не показывают SLA клиентам напрямую как рабочий ориентир — они работают с более строгим SLO, чтобы избежать нарушения контракта.</p>"
-  },
-  {
-   "title": "Error budget: расчёт = 1 - SLO, потребление, freeze при исчерпании",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>Error budget</strong> — допустимое количество \"неуспеха\" за период, вычисляемое как <code>1 - SLO</code>. Это ключевая концепция SRE, превращающая абстрактную надёжность в конкретный, тратимый ресурс.</p><pre><code>Error budget = (1 - SLO) * общее_число_запросов_или_времени</code></pre><p>Пример: SLO = 99.9% на месяц, всего запросов = 10 000 000.</p><pre><code>Error budget = (1 - 0.999) * 10000000 = 10 000 запросов\nЕсли за 20 дней потрачено 8 000 из 10 000 (80%) --\n  бюджет почти истрачен, нужно снижать риски</code></pre><p>Как используется бюджет:</p><ul><li>Каждый инцидент, деплой с ошибками, деградация — <strong>тратит</strong> error budget</li><li>Пока бюджет не исчерпан — команда может деплоить чаще, экспериментировать, брать риски</li><li>При исчерпании бюджета — вводится <strong>\"budget freeze\"</strong>: релизы фич останавливаются, фокус переключается на стабильность и надёжность</li></ul><p>Это создаёт баланс между Dev (хочет фичи) и Ops (хочет стабильность) — единый измеримый критерий вместо субъективных споров.</p><table><tr><th>Статус бюджета</th><th>Действие</th></tr><tr><td>0-50% потрачено</td><td>Обычный ритм релизов</td></tr><tr><td>50-90% потрачено</td><td>Повышенное внимание, code review строже</td></tr><tr><td>&gt;90% потрачено</td><td>Freeze — только критичные фиксы</td></tr></table><p>Error budget policy обычно документируется формально и согласуется между командами до инцидентов, а не придумывается на ходу.</p>"
-  },
-  {
-   "title": "RED метод: Rate (RPS), Errors (error rate), Duration (latency)",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>RED-метод</strong> — подход к мониторингу микросервисов и request-driven систем, предложенный Tom Wilkie (Weaveworks). Фокусируется на трёх метриках для каждого сервиса/эндпоинта:</p><ul><li><strong>Rate</strong> — количество запросов в секунду (RPS): <code>rate(http_requests_total[5m])</code></li><li><strong>Errors</strong> — доля запросов с ошибками: <code>rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m])</code></li><li><strong>Duration</strong> — распределение времени отклика (гистограмма latency, percentiles)</li></ul><p>Пример PromQL-запросов в стиле RED:</p><pre><code># Rate\nsum(rate(http_requests_total[5m])) by (service)\n\n# Errors\nsum(rate(http_requests_total{code=~\"5..\"}[5m]))\n  / sum(rate(http_requests_total[5m]))\n\n# Duration (p95)\nhistogram_quantile(0.95,\n  rate(http_request_duration_seconds_bucket[5m]))</code></pre><p>RED хорошо подходит именно для <strong>сервисов, обрабатывающих запросы</strong> (API, веб-приложения, микросервисы) — он \"снаружи\" описывает поведение с точки зрения потребителя сервиса, в отличие от USE-метода, который смотрит на ресурсы \"внутри\".</p><table><tr><th>Буква</th><th>Метрика</th><th>Вопрос</th></tr><tr><td>R</td><td>Rate</td><td>Сколько запросов?</td></tr><tr><td>E</td><td>Errors</td><td>Сколько из них упало?</td></tr><tr><td>D</td><td>Duration</td><td>Как быстро отвечаем?</td></tr></table><p>Эти три метрики обычно выводятся на dashboard как первый экран для любого сервиса — если что-то не так, RED сразу подсказывает направление расследования.</p>"
-  },
-  {
-   "title": "USE метод: Utilization, Saturation, Errors для ресурсов",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>USE-метод</strong> (Brendan Gregg) — методология анализа производительности <em>ресурсов</em> системы (CPU, память, диск, сеть), в отличие от RED, который смотрит на сервисы/запросы.</p><ul><li><strong>Utilization</strong> — процент времени, когда ресурс занят полезной работой: <code>CPU utilization = busy_time / total_time * 100%</code></li><li><strong>Saturation</strong> — степень \"переполненности\" ресурса, наличие очереди ожидающих запросов (например, load average выше числа ядер, дисковая очередь)</li><li><strong>Errors</strong> — количество ошибок на уровне ресурса (например, packet drops на сетевой карте, disk I/O errors)</li></ul><p>Пример для CPU:</p><pre><code>Utilization: node_cpu_seconds_total{mode!=\"idle\"} -- % занятости\nSaturation:  node_load1 / count(node_cpu) -- load average / кол-во ядер\nErrors:      node_cpu_ ошибки почти отсутствуют, но проверяют throttling</code></pre><p>Пример для диска:</p><pre><code>Utilization: % времени диск был занят операциями I/O\nSaturation:  длина очереди I/O запросов (iostat -x, avgqu-sz)\nErrors:      SMART errors, I/O errors в dmesg</code></pre><table><tr><th>Ресурс</th><th>Utilization</th><th>Saturation</th><th>Errors</th></tr><tr><td>CPU</td><td>% busy</td><td>load avg / cores</td><td>throttling</td></tr><tr><td>Memory</td><td>% used</td><td>swap usage</td><td>OOM kills</td></tr><tr><td>Disk</td><td>% busy</td><td>queue length</td><td>I/O errors</td></tr><tr><td>Network</td><td>% bandwidth</td><td>buffer overflow</td><td>packet drops</td></tr></table><p>USE удобен для быстрой систематической диагностики \"железа\" при расследовании инцидента: проходишь по всем ресурсам по очереди и ищешь аномалии.</p>"
-  },
-  {
-   "title": "SLO tracking в Prometheus: recording rules + Grafana dashboard",
-   "level": "🟡 Middle",
-   "explanation": "<p>Для отслеживания SLO в реальном времени используют <strong>recording rules</strong> в Prometheus — предвычисленные агрегаты, которые сохраняются как новые временные ряды, что экономит ресурсы при частых запросах в Grafana.</p><p>Пример recording rule для availability SLI (файл <code>slo_rules.yml</code>):</p><pre><code>groups:\n  - name: slo_rules\n    interval: 30s\n    rules:\n      - record: job:http_requests:rate5m\n        expr: sum(rate(http_requests_total[5m])) by (job)\n      - record: job:http_requests_errors:rate5m\n        expr: sum(rate(http_requests_total{code=~\"5..\"}[5m])) by (job)\n      - record: job:availability_sli:ratio5m\n        expr: >\n          1 - (job:http_requests_errors:rate5m\n              / job:http_requests:rate5m)</code></pre><p>Для отслеживания error budget используют burn rate — скорость расходования бюджета:</p><pre><code>burn_rate = (1 - SLI) / (1 - SLO)</code></pre><p>Если <code>burn_rate &gt; 1</code>, бюджет тратится быстрее, чем рассчитано на период. Multi-window burn rate alerts (подход Google SRE) комбинируют короткое окно (5 мин) для быстрого обнаружения и длинное (1-6 ч) для отсечения ложных срабатываний.</p><p>В Grafana строится dashboard с панелями:</p><ul><li>Текущий SLI vs целевой SLO (gauge)</li><li>Остаток error budget в % (stat panel)</li><li>Burn rate за разные окна (graph)</li><li>Алерты через Alertmanager при burn rate &gt; 2 (быстрое исчерпание) или &gt; 1 (устойчивое превышение)</li></ul><p>Такой подход даёт команде наглядную и автоматическую систему контроля надёжности без ручных расчётов.</p>"
-  },
-  {
-   "title": "SLO-driven development: связь error budget с решением о деплое",
-   "level": "🔴 Senior",
-   "explanation": "<p><strong>SLO-driven development</strong> — практика, при которой решения о релизах, приоритетах и рисках принимаются на основе состояния error budget, а не субъективных ощущений или календарных планов. Эта идея — центральная в философии Google SRE.</p><p>Основной механизм: пока error budget не исчерпан, команда разработки имеет \"право\" деплоить новые фичи, экспериментировать, идти на риск. Как только бюджет тратится слишком быстро — включается <strong>error budget policy</strong>:</p><ul><li><strong>Green zone</strong> (бюджет в порядке) — обычный ритм релизов, эксперименты допустимы</li><li><strong>Yellow zone</strong> (бюджет тратится быстрее нормы) — усиленное code review, canary-деплои обязательны, снижение частоты релизов</li><li><strong>Red zone</strong> (бюджет истрачен) — freeze фич, все ресурсы команды переключаются на надёжность, postmortem обязателен</li></ul><p>Пример политики: ",
-   "дней.": "",
-   "100%": "freeze_feature_releases()\n    escalate_to_leadership()\n    focus_team_on_reliability()</code></pre><p>Это создаёт объективный, измеримый и заранее согласованный контракт между Product/Dev (хотят скорость) и SRE/Ops (хотят стабильность) — решения принимаются данными, а не спорами на совещаниях. Ключевое условие: политика должна быть согласована <strong>до</strong> инцидента, а не изобретаться реактивно во время кризиса, иначе она превращается в инструмент манипуляции, а не инженерной дисциплины.</p>"
-  }
- ],
- "quiz": [
-  {
-   "q": "Что такое SLI (Service Level Indicator)?",
-   "options": [
-    "Юридический контракт с клиентом",
-    "Конкретная измеримая метрика качества сервиса",
-    "Штрафная санкция за простой",
-    "План аварийного восстановления"
-   ],
-   "answer": 1,
-   "explain": "SLI — это измеримая метрика (availability, latency, error rate), которая отражает фактическое качество сервиса. SLA — это контракт, а не метрика."
-  },
-  {
-   "q": "Сколько допустимого downtime в год соответствует SLO 99.99%?",
-   "options": [
-    "8.7 часов",
-    "3.65 дня",
-    "52 минуты",
-    "5 минут"
-   ],
-   "answer": 2,
-   "explain": "(1 - 0.9999) * 525600 минут ≈ 52.6 минут в год. 8.7 часов соответствует 99.9%, а 3.65 дня — 99%."
-  },
-  {
-   "q": "В чём главное отличие SLA от SLO?",
-   "options": [
-    "SLA всегда строже, чем SLO",
-    "SLA — это внешний контракт со штрафами/кредитами, SLO — внутренняя цель",
-    "SLA измеряется в секундах, SLO в процентах",
-    "SLO применяется только к базам данных"
-   ],
-   "answer": 1,
-   "explain": "SLA — формальное юридическое обязательство перед клиентом с финансовыми последствиями. SLO — внутренний рабочий ориентир команды, обычно строже SLA."
-  },
-  {
-   "q": "Как рассчитывается error budget?",
-   "options": [
-    "SLO * 2",
-    "1 - SLO",
-    "SLA / SLI",
-    "Downtime * 100"
-   ],
-   "answer": 1,
-   "explain": "Error budget = 1 - SLO, то есть допустимая доля 'неуспеха'. Например, при SLO 99.9% бюджет ошибок составляет 0.1%."
-  },
-  {
-   "q": "Что происходит при полном исчерпании error budget согласно SRE-практике?",
-   "options": [
-    "Увеличивают SLO автоматически",
-    "Вводится freeze релизов новых фич, фокус на стабильность",
-    "Компания обязана выплатить клиенту компенсацию",
-    "Ничего, это чисто информационная метрика"
-   ],
-   "answer": 1,
-   "explain": "При исчерпании error budget команда вводит 'freeze' — новые фичи не деплоятся, все силы направлены на повышение надёжности до восстановления бюджета."
-  },
-  {
-   "q": "Какие три метрики входят в RED-метод?",
-   "options": [
-    "Utilization, Saturation, Errors",
-    "Rate, Errors, Duration",
-    "Retry, Escalation, Downtime",
-    "Recovery, Error budget, Deploy"
-   ],
-   "answer": 1,
-   "explain": "RED = Rate (запросов в секунду), Errors (доля ошибок), Duration (время отклика). Это подход для мониторинга request-driven сервисов."
-  },
-  {
-   "q": "Для чего в первую очередь применяется USE-метод?",
-   "options": [
-    "Для анализа контрактов SLA",
-    "Для мониторинга ресурсов (CPU, память, диск, сеть)",
-    "Для расчёта error budget",
-    "Для тестирования нагрузки веб-приложений"
-   ],
-   "answer": 1,
-   "explain": "USE (Utilization, Saturation, Errors) — методология Brendan Gregg для систематического анализа состояния аппаратных/системных ресурсов, а не запросов сервиса."
-  },
-  {
-   "q": "Что означает 'Saturation' в USE-методе?",
-   "options": [
-    "Процент времени занятости ресурса",
-    "Степень переполненности ресурса, наличие очереди ожидания",
-    "Количество ошибок ресурса",
-    "Скорость передачи данных"
-   ],
-   "answer": 1,
-   "explain": "Saturation показывает, насколько ресурс перегружен сверх своей нормальной ёмкости — например, длина очереди I/O или load average выше числа ядер CPU."
-  },
-  {
-   "q": "Зачем в Prometheus используют recording rules при SLO tracking?",
-   "options": [
-    "Чтобы удалять старые метрики",
-    "Чтобы предвычислять агрегаты и экономить ресурсы при частых запросах",
-    "Чтобы автоматически повышать SLO",
-    "Чтобы шифровать метрики"
-   ],
-   "answer": 1,
-   "explain": "Recording rules сохраняют предвычисленные значения как новые временные ряды, что снижает нагрузку на Prometheus при построении дашбордов в Grafana с частыми запросами."
-  },
-  {
-   "q": "Что означает burn rate > 1 при отслеживании error budget?",
-   "options": [
-    "Бюджет тратится быстрее, чем рассчитано на период",
-    "Сервис полностью недоступен",
-    "SLO был превышен и надёжность идеальна",
-    "Ошибка в конфигурации Prometheus"
-   ],
-   "answer": 0,
-   "explain": "Burn rate = (1 - SLI) / (1 - SLO). Если результат больше 1, бюджет расходуется быстрее нормы, и при таком темпе он будет исчерпан раньше конца периода."
-  }
- ]
+  "phase": "Phase 5 — SRE Practices",
+  "section": "📐 SLO / SLI / SLA / Error Budget",
+  "topics": [
+    {
+      "title": "SLI: что измеряем — availability, latency p50/p95/p99, error rate",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>SLI (Service Level Indicator)</strong> — конкретная измеримая метрика, отражающая качество сервиса с точки зрения пользователя. SLI не путать со SLO — SLI это <em>измерение</em>, SLO это <em>цель</em> для этого измерения.</p><ul><li><strong>Availability</strong> — доля успешных запросов: <code>good_requests / total_requests * 100%</code></li><li><strong>Latency percentiles</strong> — p50 (медиана), p95, p99 показывают время отклика для 50%, 95%, 99% запросов соответственно. p99 важен, так как показывает «хвостовые» проблемы, скрытые средним значением</li><li><strong>Error rate</strong> — доля запросов с ошибками (HTTP 5xx): <code>errors / total_requests</code></li></ul><p>Пример расчёта availability SLI: за сутки было 1 000 000 запросов, из них 999 500 успешных.</p><pre><code>SLI = 999500 / 1000000 * 100% = 99.95%</code></pre><p>Пример latency SLI: если из 10 000 запросов 9 900 отработали быстрее 200мс, то p99 latency &lt;= 200мс.</p><table><tr><th>Метрика</th><th>Что показывает</th><th>Пример</th></tr><tr><td>Availability</td><td>Доступность сервиса</td><td>99.95%</td></tr><tr><td>Latency p95</td><td>95% запросов быстрее X</td><td>150мс</td></tr><tr><td>Error rate</td><td>Доля ошибок</td><td>0.05%</td></tr></table><p>Хорошие SLI должны быть <strong>измеримы автоматически</strong> (Prometheus, APM), отражать реальный пользовательский опыт, а не внутренние детали инфраструктуры.</p>",
+      "links": [
+        {
+          "title": "Google SRE Book — глава про Service Level Objectives (определение SLI)",
+          "url": "https://sre.google/sre-book/service-level-objectives/"
+        },
+        {
+          "title": "Google SRE Workbook — реализация SLO на практике",
+          "url": "https://sre.google/workbook/implementing-slos/"
+        },
+        {
+          "title": "Prometheus Docs — histogram_quantile и расчёт latency percentiles",
+          "url": "https://prometheus.io/docs/prometheus/latest/querying/functions/#histogram_quantile"
+        }
+      ]
+    },
+    {
+      "title": "SLO: внутренние цели — 99.9% = 8.7 ч/год downtime, 99.99% = 52 мин",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>SLO (Service Level Objective)</strong> — внутренняя целевая величина для SLI, зафиксированная командой как ориентир качества. SLO не является юридическим обязательством (в отличие от SLA), это рабочая договорённость внутри организации.</p><p>Ключевая формула для расчёта допустимого downtime за год (365 дней = 8760 часов = 525600 минут):</p><pre><code>Downtime = (1 - SLO) * общее_время</code></pre><table><tr><th>SLO (%)</th><th>Допустимый downtime / год</th><th>/ месяц</th></tr><tr><td>99%</td><td>3.65 дня</td><td>~7.3 ч</td></tr><tr><td>99.9%</td><td>8.7 часов</td><td>~43.8 мин</td></tr><tr><td>99.95%</td><td>4.38 часов</td><td>~21.9 мин</td></tr><tr><td>99.99%</td><td>52.6 минут</td><td>~4.4 мин</td></tr><tr><td>99.999%</td><td>5.26 минут</td><td>~26 сек</td></tr></table><p>Расчёт для 99.99%: <code>(1 - 0.9999) * 525600 мин = 52.56 мин/год</code>.</p><p>Важно: SLO должен быть <strong>достижимым и экономически обоснованным</strong> — стремление к 99.999% («five nines») требует кратно больших затрат на инфраструктуру, multi-region репликацию и automation, поэтому SLO выбирается исходя из бизнес-требований, а не «чем выше — тем лучше».</p><p>SLO обычно устанавливается <strong>ниже</strong> реального наблюдаемого уровня, чтобы оставить error budget для экспериментов и деплоев.</p>",
+      "links": [
+        {
+          "title": "Google SRE Book — глава про Service Level Objectives",
+          "url": "https://sre.google/sre-book/service-level-objectives/"
+        },
+        {
+          "title": "Google Cloud Architecture Framework — мониторинг и SLO",
+          "url": "https://cloud.google.com/architecture/framework/reliability/monitoring"
+        },
+        {
+          "title": "Google SRE Workbook — как выбрать и внедрить SLO",
+          "url": "https://sre.google/workbook/implementing-slos/"
+        }
+      ]
+    },
+    {
+      "title": "SLA: внешние обязательства с штрафами/кредитами при нарушении",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>SLA (Service Level Agreement)</strong> — формальный контракт между поставщиком услуги и клиентом, описывающий гарантированный уровень сервиса и последствия при его нарушении (штрафы, кредиты, компенсации).</p><ul><li>SLA — юридический документ, часто часть коммерческого договора</li><li>SLO — внутренняя цель команды, обычно строже чем SLA (запас на ошибку)</li><li>SLI — метрика, по которой измеряется выполнение SLO/SLA</li></ul><p>Типичное соотношение: <strong>SLI &le; SLO &le; SLA</strong> по строгости, то есть внутренний SLO жёстче, чем внешний SLA — это даёт «буфер безопасности» до того, как компания понесёт финансовые последствия.</p><p>Пример из практики AWS: SLA на EC2 гарантирует 99.99% доступности в регионе; при нарушении клиент получает service credit (например, 10% от месячного счёта при доступности 99.0%–99.99%, 30% при &lt;99.0%).</p><pre><code>Если SLA = 99.9% (43.8 мин/мес допустимого простоя)\n  и SLO = 99.95% (21.9 мин/мес) -- внутренняя цель,\n  то есть 21.9 мин \"запаса\" до нарушения контракта</code></pre><table><tr><th>Тип</th><th>Аудитория</th><th>Последствия</th></tr><tr><td>SLI</td><td>Инженеры</td><td>Нет, просто метрика</td></tr><tr><td>SLO</td><td>Команда/продукт</td><td>Замедление деплоев (error budget)</td></tr><tr><td>SLA</td><td>Клиент/юристы</td><td>Штрафы, кредиты, репутация</td></tr></table><p>SRE-команды обычно не показывают SLA клиентам напрямую как рабочий ориентир — они работают с более строгим SLO, чтобы избежать нарушения контракта.</p>",
+      "links": [
+        {
+          "title": "Google SRE Book — соотношение SLI, SLO и SLA",
+          "url": "https://sre.google/sre-book/service-level-objectives/"
+        },
+        {
+          "title": "AWS Compute Service Level Agreements — пример реального SLA с кредитами",
+          "url": "https://aws.amazon.com/compute/sla/"
+        },
+        {
+          "title": "Google Cloud SLA — пример формального внешнего соглашения",
+          "url": "https://cloud.google.com/terms/sla"
+        }
+      ]
+    },
+    {
+      "title": "Error budget: расчёт = 1 - SLO, потребление, freeze при исчерпании",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>Error budget</strong> — допустимое количество \"неуспеха\" за период, вычисляемое как <code>1 - SLO</code>. Это ключевая концепция SRE, превращающая абстрактную надёжность в конкретный, тратимый ресурс.</p><pre><code>Error budget = (1 - SLO) * общее_число_запросов_или_времени</code></pre><p>Пример: SLO = 99.9% на месяц, всего запросов = 10 000 000.</p><pre><code>Error budget = (1 - 0.999) * 10000000 = 10 000 запросов\nЕсли за 20 дней потрачено 8 000 из 10 000 (80%) --\n  бюджет почти истрачен, нужно снижать риски</code></pre><p>Как используется бюджет:</p><ul><li>Каждый инцидент, деплой с ошибками, деградация — <strong>тратит</strong> error budget</li><li>Пока бюджет не исчерпан — команда может деплоить чаще, экспериментировать, брать риски</li><li>При исчерпании бюджета — вводится <strong>\"budget freeze\"</strong>: релизы фич останавливаются, фокус переключается на стабильность и надёжность</li></ul><p>Это создаёт баланс между Dev (хочет фичи) и Ops (хочет стабильность) — единый измеримый критерий вместо субъективных споров.</p><table><tr><th>Статус бюджета</th><th>Действие</th></tr><tr><td>0-50% потрачено</td><td>Обычный ритм релизов</td></tr><tr><td>50-90% потрачено</td><td>Повышенное внимание, code review строже</td></tr><tr><td>&gt;90% потрачено</td><td>Freeze — только критичные фиксы</td></tr></table><p>Error budget policy обычно документируется формально и согласуется между командами до инцидентов, а не придумывается на ходу.</p>",
+      "links": [
+        {
+          "title": "Google SRE Book — глава Embracing Risk (error budget)",
+          "url": "https://sre.google/sre-book/embracing-risk/"
+        },
+        {
+          "title": "Google SRE Workbook — Error Budget Policy на практике",
+          "url": "https://sre.google/workbook/error-budget-policy/"
+        },
+        {
+          "title": "Google SRE Workbook — Alerting on SLOs и burn rate",
+          "url": "https://sre.google/workbook/alerting-on-slos/"
+        }
+      ]
+    },
+    {
+      "title": "RED метод: Rate (RPS), Errors (error rate), Duration (latency)",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>RED-метод</strong> — подход к мониторингу микросервисов и request-driven систем, предложенный Tom Wilkie (Weaveworks). Фокусируется на трёх метриках для каждого сервиса/эндпоинта:</p><ul><li><strong>Rate</strong> — количество запросов в секунду (RPS): <code>rate(http_requests_total[5m])</code></li><li><strong>Errors</strong> — доля запросов с ошибками: <code>rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m])</code></li><li><strong>Duration</strong> — распределение времени отклика (гистограмма latency, percentiles)</li></ul><p>Пример PromQL-запросов в стиле RED:</p><pre><code># Rate\nsum(rate(http_requests_total[5m])) by (service)\n\n# Errors\nsum(rate(http_requests_total{code=~\"5..\"}[5m]))\n  / sum(rate(http_requests_total[5m]))\n\n# Duration (p95)\nhistogram_quantile(0.95,\n  rate(http_request_duration_seconds_bucket[5m]))</code></pre><p>RED хорошо подходит именно для <strong>сервисов, обрабатывающих запросы</strong> (API, веб-приложения, микросервисы) — он \"снаружи\" описывает поведение с точки зрения потребителя сервиса, в отличие от USE-метода, который смотрит на ресурсы \"внутри\".</p><table><tr><th>Буква</th><th>Метрика</th><th>Вопрос</th></tr><tr><td>R</td><td>Rate</td><td>Сколько запросов?</td></tr><tr><td>E</td><td>Errors</td><td>Сколько из них упало?</td></tr><tr><td>D</td><td>Duration</td><td>Как быстро отвечаем?</td></tr></table><p>Эти три метрики обычно выводятся на dashboard как первый экран для любого сервиса — если что-то не так, RED сразу подсказывает направление расследования.</p>",
+      "links": [
+        {
+          "title": "Weaveworks — The RED Method: ключевые метрики для микросервисов",
+          "url": "https://www.weave.works/blog/the-red-method-key-metrics-for-microservices-architecture/"
+        },
+        {
+          "title": "Grafana Labs — RED Method dashboard и best practices",
+          "url": "https://grafana.com/blog/2018/08/02/the-red-method-how-to-instrument-your-services/"
+        },
+        {
+          "title": "Prometheus Docs — rate() и агрегация метрик запросов",
+          "url": "https://prometheus.io/docs/prometheus/latest/querying/functions/#rate"
+        }
+      ]
+    },
+    {
+      "title": "USE метод: Utilization, Saturation, Errors для ресурсов",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>USE-метод</strong> (Brendan Gregg) — методология анализа производительности <em>ресурсов</em> системы (CPU, память, диск, сеть), в отличие от RED, который смотрит на сервисы/запросы.</p><ul><li><strong>Utilization</strong> — процент времени, когда ресурс занят полезной работой: <code>CPU utilization = busy_time / total_time * 100%</code></li><li><strong>Saturation</strong> — степень \"переполненности\" ресурса, наличие очереди ожидающих запросов (например, load average выше числа ядер, дисковая очередь)</li><li><strong>Errors</strong> — количество ошибок на уровне ресурса (например, packet drops на сетевой карте, disk I/O errors)</li></ul><p>Пример для CPU:</p><pre><code>Utilization: node_cpu_seconds_total{mode!=\"idle\"} -- % занятости\nSaturation:  node_load1 / count(node_cpu) -- load average / кол-во ядер\nErrors:      node_cpu_ ошибки почти отсутствуют, но проверяют throttling</code></pre><p>Пример для диска:</p><pre><code>Utilization: % времени диск был занят операциями I/O\nSaturation:  длина очереди I/O запросов (iostat -x, avgqu-sz)\nErrors:      SMART errors, I/O errors в dmesg</code></pre><table><tr><th>Ресурс</th><th>Utilization</th><th>Saturation</th><th>Errors</th></tr><tr><td>CPU</td><td>% busy</td><td>load avg / cores</td><td>throttling</td></tr><tr><td>Memory</td><td>% used</td><td>swap usage</td><td>OOM kills</td></tr><tr><td>Disk</td><td>% busy</td><td>queue length</td><td>I/O errors</td></tr><tr><td>Network</td><td>% bandwidth</td><td>buffer overflow</td><td>packet drops</td></tr></table><p>USE удобен для быстрой систематической диагностики \"железа\" при расследовании инцидента: проходишь по всем ресурсам по очереди и ищешь аномалии.</p>",
+      "links": [
+        {
+          "title": "Brendan Gregg — The USE Method (оригинальное описание методологии)",
+          "url": "https://www.brendangregg.com/usemethod.html"
+        },
+        {
+          "title": "Brendan Gregg — USE Method: Linux Performance Checklist",
+          "url": "https://www.brendangregg.com/USEmethod/use-linux.html"
+        },
+        {
+          "title": "Google SRE Book — Monitoring Distributed Systems (RED/USE в контексте SRE)",
+          "url": "https://sre.google/sre-book/monitoring-distributed-systems/"
+        }
+      ]
+    },
+    {
+      "title": "SLO tracking в Prometheus: recording rules + Grafana dashboard",
+      "level": "🟡 Middle",
+      "explanation": "<p>Для отслеживания SLO в реальном времени используют <strong>recording rules</strong> в Prometheus — предвычисленные агрегаты, которые сохраняются как новые временные ряды, что экономит ресурсы при частых запросах в Grafana.</p><p>Пример recording rule для availability SLI (файл <code>slo_rules.yml</code>):</p><pre><code>groups:\n  - name: slo_rules\n    interval: 30s\n    rules:\n      - record: job:http_requests:rate5m\n        expr: sum(rate(http_requests_total[5m])) by (job)\n      - record: job:http_requests_errors:rate5m\n        expr: sum(rate(http_requests_total{code=~\"5..\"}[5m])) by (job)\n      - record: job:availability_sli:ratio5m\n        expr: >\n          1 - (job:http_requests_errors:rate5m\n              / job:http_requests:rate5m)</code></pre><p>Для отслеживания error budget используют burn rate — скорость расходования бюджета:</p><pre><code>burn_rate = (1 - SLI) / (1 - SLO)</code></pre><p>Если <code>burn_rate &gt; 1</code>, бюджет тратится быстрее, чем рассчитано на период. Multi-window burn rate alerts (подход Google SRE) комбинируют короткое окно (5 мин) для быстрого обнаружения и длинное (1-6 ч) для отсечения ложных срабатываний.</p><p>В Grafana строится dashboard с панелями:</p><ul><li>Текущий SLI vs целевой SLO (gauge)</li><li>Остаток error budget в % (stat panel)</li><li>Burn rate за разные окна (graph)</li><li>Алерты через Alertmanager при burn rate &gt; 2 (быстрое исчерпание) или &gt; 1 (устойчивое превышение)</li></ul><p>Такой подход даёт команде наглядную и автоматическую систему контроля надёжности без ручных расчётов.</p>",
+      "links": [
+        {
+          "title": "Prometheus Docs — Recording Rules: синтаксис и best practices",
+          "url": "https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/"
+        },
+        {
+          "title": "Google SRE Workbook — Alerting on SLOs (multi-window burn rate)",
+          "url": "https://sre.google/workbook/alerting-on-slos/"
+        },
+        {
+          "title": "Grafana Docs — построение дашбордов для SLO/error budget",
+          "url": "https://grafana.com/docs/grafana/latest/dashboards/"
+        }
+      ]
+    },
+    {
+      "title": "SLO-driven development: связь error budget с решением о деплое",
+      "level": "🔴 Senior",
+      "explanation": "<p><strong>SLO-driven development</strong> — практика, при которой решения о релизах, приоритетах и рисках принимаются на основе состояния error budget, а не субъективных ощущений или календарных планов. Эта идея — центральная в философии Google SRE.</p><p>Основной механизм: пока error budget не исчерпан, команда разработки имеет \"право\" деплоить новые фичи, экспериментировать, идти на риск. Как только бюджет тратится слишком быстро — включается <strong>error budget policy</strong>:</p><ul><li><strong>Green zone</strong> (бюджет в порядке) — обычный ритм релизов, эксперименты допустимы</li><li><strong>Yellow zone</strong> (бюджет тратится быстрее нормы) — усиленное code review, canary-деплои обязательны, снижение частоты релизов</li><li><strong>Red zone</strong> (бюджет истрачен) — freeze фич, все ресурсы команды переключаются на надёжность, postmortem обязателен</li></ul><p>Пример политики: ",
+      "дней.": "",
+      "100%": "freeze_feature_releases()\n    escalate_to_leadership()\n    focus_team_on_reliability()</code></pre><p>Это создаёт объективный, измеримый и заранее согласованный контракт между Product/Dev (хотят скорость) и SRE/Ops (хотят стабильность) — решения принимаются данными, а не спорами на совещаниях. Ключевое условие: политика должна быть согласована <strong>до</strong> инцидента, а не изобретаться реактивно во время кризиса, иначе она превращается в инструмент манипуляции, а не инженерной дисциплины.</p>",
+      "links": [
+        {
+          "title": "Google SRE Workbook — Implementing SLOs (влияние на процесс релизов)",
+          "url": "https://sre.google/workbook/implementing-slos/"
+        },
+        {
+          "title": "Google SRE Book — Embracing Risk: error budget и решения о релизах",
+          "url": "https://sre.google/sre-book/embracing-risk/"
+        },
+        {
+          "title": "Google SRE Workbook — Error Budget Policy: шаблон политики",
+          "url": "https://sre.google/workbook/error-budget-policy/"
+        }
+      ]
+    }
+  ],
+  "quiz": [
+    {
+      "q": "Что такое SLI (Service Level Indicator)?",
+      "options": [
+        "Юридический контракт с клиентом",
+        "Конкретная измеримая метрика качества сервиса",
+        "Штрафная санкция за простой",
+        "План аварийного восстановления"
+      ],
+      "answer": 1,
+      "explain": "SLI — это измеримая метрика (availability, latency, error rate), которая отражает фактическое качество сервиса. SLA — это контракт, а не метрика."
+    },
+    {
+      "q": "Сколько допустимого downtime в год соответствует SLO 99.99%?",
+      "options": [
+        "8.7 часов",
+        "3.65 дня",
+        "52 минуты",
+        "5 минут"
+      ],
+      "answer": 2,
+      "explain": "(1 - 0.9999) * 525600 минут ≈ 52.6 минут в год. 8.7 часов соответствует 99.9%, а 3.65 дня — 99%."
+    },
+    {
+      "q": "В чём главное отличие SLA от SLO?",
+      "options": [
+        "SLA всегда строже, чем SLO",
+        "SLA — это внешний контракт со штрафами/кредитами, SLO — внутренняя цель",
+        "SLA измеряется в секундах, SLO в процентах",
+        "SLO применяется только к базам данных"
+      ],
+      "answer": 1,
+      "explain": "SLA — формальное юридическое обязательство перед клиентом с финансовыми последствиями. SLO — внутренний рабочий ориентир команды, обычно строже SLA."
+    },
+    {
+      "q": "Как рассчитывается error budget?",
+      "options": [
+        "SLO * 2",
+        "1 - SLO",
+        "SLA / SLI",
+        "Downtime * 100"
+      ],
+      "answer": 1,
+      "explain": "Error budget = 1 - SLO, то есть допустимая доля 'неуспеха'. Например, при SLO 99.9% бюджет ошибок составляет 0.1%."
+    },
+    {
+      "q": "Что происходит при полном исчерпании error budget согласно SRE-практике?",
+      "options": [
+        "Увеличивают SLO автоматически",
+        "Вводится freeze релизов новых фич, фокус на стабильность",
+        "Компания обязана выплатить клиенту компенсацию",
+        "Ничего, это чисто информационная метрика"
+      ],
+      "answer": 1,
+      "explain": "При исчерпании error budget команда вводит 'freeze' — новые фичи не деплоятся, все силы направлены на повышение надёжности до восстановления бюджета."
+    },
+    {
+      "q": "Какие три метрики входят в RED-метод?",
+      "options": [
+        "Utilization, Saturation, Errors",
+        "Rate, Errors, Duration",
+        "Retry, Escalation, Downtime",
+        "Recovery, Error budget, Deploy"
+      ],
+      "answer": 1,
+      "explain": "RED = Rate (запросов в секунду), Errors (доля ошибок), Duration (время отклика). Это подход для мониторинга request-driven сервисов."
+    },
+    {
+      "q": "Для чего в первую очередь применяется USE-метод?",
+      "options": [
+        "Для анализа контрактов SLA",
+        "Для мониторинга ресурсов (CPU, память, диск, сеть)",
+        "Для расчёта error budget",
+        "Для тестирования нагрузки веб-приложений"
+      ],
+      "answer": 1,
+      "explain": "USE (Utilization, Saturation, Errors) — методология Brendan Gregg для систематического анализа состояния аппаратных/системных ресурсов, а не запросов сервиса."
+    },
+    {
+      "q": "Что означает 'Saturation' в USE-методе?",
+      "options": [
+        "Процент времени занятости ресурса",
+        "Степень переполненности ресурса, наличие очереди ожидания",
+        "Количество ошибок ресурса",
+        "Скорость передачи данных"
+      ],
+      "answer": 1,
+      "explain": "Saturation показывает, насколько ресурс перегружен сверх своей нормальной ёмкости — например, длина очереди I/O или load average выше числа ядер CPU."
+    },
+    {
+      "q": "Зачем в Prometheus используют recording rules при SLO tracking?",
+      "options": [
+        "Чтобы удалять старые метрики",
+        "Чтобы предвычислять агрегаты и экономить ресурсы при частых запросах",
+        "Чтобы автоматически повышать SLO",
+        "Чтобы шифровать метрики"
+      ],
+      "answer": 1,
+      "explain": "Recording rules сохраняют предвычисленные значения как новые временные ряды, что снижает нагрузку на Prometheus при построении дашбордов в Grafana с частыми запросами."
+    },
+    {
+      "q": "Что означает burn rate > 1 при отслеживании error budget?",
+      "options": [
+        "Бюджет тратится быстрее, чем рассчитано на период",
+        "Сервис полностью недоступен",
+        "SLO был превышен и надёжность идеальна",
+        "Ошибка в конфигурации Prometheus"
+      ],
+      "answer": 0,
+      "explain": "Burn rate = (1 - SLI) / (1 - SLO). Если результат больше 1, бюджет расходуется быстрее нормы, и при таком темпе он будет исчерпан раньше конца периода."
+    }
+  ]
 }

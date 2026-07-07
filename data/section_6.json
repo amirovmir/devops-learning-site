@@ -1,215 +1,421 @@
 {
- "phase": "Phase 3 — CI/CD + Terraform + Ansible",
- "section": "🔄 CI/CD Pipelines",
- "topics": [
-  {
-   "title": "Концепции: CI vs CD (Delivery vs Deployment) — отличия",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>Continuous Integration (CI)</strong> — практика, при которой разработчики часто (несколько раз в день) вливают изменения в общую ветку. Каждый коммит автоматически собирается и прогоняется через тесты, что позволяет находить конфликты и баги на раннем этапе.</p><p><strong>Continuous Delivery</strong> — расширение CI: после успешной сборки и тестов приложение автоматически готовится к релизу (собирается артефакт, образ), но выпуск в production делает человек — нажатием кнопки.</p><p><strong>Continuous Deployment</strong> — следующий шаг: если все автоматические проверки прошли успешно, изменения выкатываются в production <em>без</em> ручного подтверждения.</p><table><tr><th>Термин</th><th>Сборка</th><th>Тесты</th><th>Деплой в prod</th></tr><tr><td>CI</td><td>авто</td><td>авто</td><td>нет</td></tr><tr><td>Continuous Delivery</td><td>авто</td><td>авто</td><td>ручной клик</td></tr><tr><td>Continuous Deployment</td><td>авто</td><td>авто</td><td>полностью авто</td></tr></table><p>Пример пайплайна на GitLab CI, реализующего CI без деплоя:</p><pre><code>stages:\n  - build\n  - test\n\nbuild:\n  stage: build\n  script:\n    - docker build -t myapp:$CI_COMMIT_SHA .\n\nunit_tests:\n  stage: test\n  script:\n    - go test ./...</code></pre><p>Различие важно на собеседованиях: многие путают Delivery и Deployment, хотя ключевое отличие — наличие ручного gate перед production.</p>"
-  },
-  {
-   "title": "Git webhooks: как pipeline триггерится на push/MR/tag",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>Webhook</strong> — это HTTP-запрос (обычно POST), который Git-провайдер (GitHub, GitLab, Bitbucket) отправляет на заданный URL при возникновении события в репозитории: push, создание merge request/pull request, создание тега, комментарий и т.д.</p><p>CI-система (Jenkins, GitLab CI, GitHub Actions) либо сама принимает webhook на свой endpoint, либо (в случае GitHub Actions/GitLab CI) события обрабатываются встроенным механизмом без ручной настройки webhook.</p><p>Пример настройки webhook в Jenkins для GitHub: в репозитории указывается URL <code>http://jenkins.example.com/github-webhook/</code>, событие — <strong>push</strong>. Jenkins должен иметь установленный плагин GitHub Integration.</p><p>В GitHub Actions триггер описывается прямо в workflow-файле:</p><pre><code>on:\n  push:\n    branches: [main]\n  pull_request:\n    types: [opened, synchronize]\n  push:\n    tags:\n      - 'v*'</code></pre><p>В GitLab CI аналогично через секцию <code>rules</code>:</p><pre><code>job:\n  script: echo \"run\"\n  rules:\n    - if: '$CI_COMMIT_TAG'\n    - if: '$CI_PIPELINE_SOURCE == \"merge_request_event\"'</code></pre><ul><li>Push-событие — самый частый триггер для CI-тестов.</li><li>MR/PR-событие — запускает проверки перед мержем (линтеры, тесты).</li><li>Tag-событие — обычно триггерит релизный пайплайн (сборка и публикация версии).</li></ul><p>Важно защищать webhook secret-токеном, чтобы исключить поддельные запросы.</p>"
-  },
-  {
-   "title": "Jenkins: установка, Jenkinsfile, declarative vs scripted pipeline",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>Jenkins</strong> — один из старейших и самых распространённых CI/CD серверов с открытым исходным кодом на Java. Устанавливается как standalone-сервис, через Docker-образ <code>jenkins/jenkins:lts</code> или как war-файл под Tomcat.</p><p>Быстрый старт в Docker:</p><pre><code>docker run -d -p 8080:8080 -p 50000:50000 -v jenkins_home:/var/jenkins_home jenkins/jenkins:lts</code></pre><p>Пайплайны в Jenkins описываются в файле <code>Jenkinsfile</code>, который хранится в корне репозитория. Есть два синтаксиса:</p><ul><li><strong>Declarative pipeline</strong> — современный, структурированный, легче читается, рекомендуется для большинства случаев.</li><li><strong>Scripted pipeline</strong> — старый, на чистом Groovy, даёт больше гибкости, но сложнее поддерживать.</li></ul><p>Пример declarative Jenkinsfile:</p><pre><code>pipeline {\n    agent any\n    stages {\n        stage('Build') {\n            steps {\n                sh 'go build -o app .'\n            }\n        }\n        stage('Test') {\n            steps {\n                sh 'go test ./...'\n            }\n        }\n    }\n}</code></pre><p>Пример того же самого в scripted-стиле:</p><pre><code>node {\n    stage('Build') {\n        sh 'go build -o app .'\n    }\n    stage('Test') {\n        sh 'go test ./...'\n    }\n}</code></pre><p>Declarative проверяется линтером Jenkins на этапе parse, что снижает количество ошибок в runtime — поэтому в новых проектах предпочитают именно его.</p>"
-  },
-  {
-   "title": "Jenkins: stages, steps, post (always/success/failure), параметры",
-   "level": "🟢 Junior",
-   "explanation": "<p>Declarative Jenkinsfile строится из блока <code>pipeline</code>, внутри которого объявляются <strong>stages</strong> (логические этапы: Build, Test, Deploy), а внутри каждого stage — <strong>steps</strong> (конкретные команды).</p><p>Блок <code>post</code> определяет действия после выполнения stage или всего пайплайна в зависимости от результата:</p><ul><li><code>always</code> — выполняется всегда, независимо от результата;</li><li><code>success</code> — только если всё прошло успешно;</li><li><code>failure</code> — только при ошибке;</li><li><code>unstable</code> — при нестабильном результате (например, часть тестов упала, но не критично).</li></ul><p>Параметры позволяют передавать значения при ручном запуске сборки:</p><pre><code>pipeline {\n    agent any\n    parameters {\n        choice(name: 'ENV', choices: ['dev', 'staging', 'prod'], description: 'Окружение')\n        string(name: 'VERSION', defaultValue: '1.0.0')\n    }\n    stages {\n        stage('Deploy') {\n            steps {\n                echo \"Deploying version ${params.VERSION} to ${params.ENV}\"\n            }\n        }\n    }\n    post {\n        always {\n            echo 'Пайплайн завершён'\n        }\n        success {\n            slackSend(message: \"Deploy ${params.VERSION} успешен\")\n        }\n        failure {\n            mail to: 'devops@example.com', subject: 'Build failed', body: 'Проверьте логи'\n        }\n    }\n}</code></pre><p>Такая структура даёт понятную обратную связь команде: успех уведомляется в Slack, а провал — по email, без дублирования логики между stages.</p>"
-  },
-  {
-   "title": "GitLab CI: .gitlab-ci.yml, stages, jobs, artifacts, cache, runners",
-   "level": "🟢 Junior",
-   "explanation": "<p>GitLab CI — встроенная в GitLab CI/CD-система. Конфигурация описывается декларативно в YAML-файле <code>.gitlab-ci.yml</code> в корне репозитория.</p><p>Ключевые понятия:</p><ul><li><strong>stages</strong> — последовательные этапы (build, test, deploy);</li><li><strong>jobs</strong> — конкретные задачи, каждая привязана к stage; jobs внутри одного stage выполняются параллельно;</li><li><strong>artifacts</strong> — файлы, которые сохраняются после job и передаются в последующие stages (например, скомпилированный бинарник);</li><li><strong>cache</strong> — данные (например, <code>node_modules</code>), которые кешируются между запусками для ускорения;</li><li><strong>runners</strong> — агенты (Docker, shell, Kubernetes executor), выполняющие jobs; бывают shared (общие для всего GitLab) и specific (закреплённые за проектом).</li></ul><pre><code>stages:\n  - build\n  - test\n  - deploy\n\nbuild_job:\n  stage: build\n  script:\n    - npm install\n    - npm run build\n  cache:\n    key: node-modules\n    paths:\n      - node_modules/\n  artifacts:\n    paths:\n      - dist/\n    expire_in: 1 week\n\ntest_job:\n  stage: test\n  script:\n    - npm test\n\ndeploy_job:\n  stage: deploy\n  script:\n    - ./deploy.sh\n  only:\n    - main</code></pre><p>Runner регистрируется командой <code>gitlab-runner register</code> с указанием URL GitLab и токена проекта. Executor может быть <code>docker</code>, <code>shell</code>, <code>kubernetes</code> — выбор влияет на изоляцию и скорость запуска jobs.</p>"
-  },
-  {
-   "title": "GitHub Actions: workflow yaml, jobs, steps, actions/checkout, secrets",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>GitHub Actions</strong> — встроенная CI/CD платформа GitHub. Workflow-файлы хранятся в <code>.github/workflows/*.yml</code> и описывают, при каких событиях (<code>on:</code>) и какие <strong>jobs</strong> запускать.</p><p>Каждый job состоит из <strong>steps</strong> — последовательных действий, которые могут быть либо готовыми <em>actions</em> из marketplace (например, <code>actions/checkout</code> для клонирования репозитория), либо простыми shell-командами через <code>run:</code>.</p><pre><code>name: CI\n\non:\n  push:\n    branches: [main]\n\njobs:\n  build-and-test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n\n      - name: Setup Node\n        uses: actions/setup-node@v4\n        with:\n          node-version: '20'\n\n      - name: Install deps\n        run: npm ci\n\n      - name: Run tests\n        run: npm test\n\n      - name: Deploy\n        env:\n          API_TOKEN: ${{ secrets.API_TOKEN }}\n        run: ./deploy.sh</code></pre><p><strong>Secrets</strong> хранятся в настройках репозитория (Settings → Secrets and variables → Actions) и доступны в workflow через контекст <code>secrets.*</code>, не попадая в логи в открытом виде.</p><ul><li><code>runs-on</code> задаёт тип раннера (ubuntu-latest, windows-latest, self-hosted);</li><li>jobs по умолчанию выполняются параллельно, если не указана зависимость <code>needs:</code>;</li><li>marketplace-actions значительно ускоряют написание пайплайнов, избавляя от ручной настройки окружения.</li></ul>"
-  },
-  {
-   "title": "Секреты в pipeline: Vault integration, encrypted vars",
-   "level": "🟢 Junior",
-   "explanation": "<p>Хранить пароли, токены и API-ключи в открытом виде в репозитории или в коде пайплайна — критическая ошибка безопасности. Существует два основных подхода:</p><ul><li><strong>Encrypted variables</strong> — секреты хранятся в зашифрованном виде на стороне CI-платформы (GitHub Secrets, GitLab CI/CD Variables с флагом <em>masked + protected</em>, Jenkins Credentials) и подставляются в переменные окружения во время запуска job, не отображаясь в логах.</li><li><strong>HashiCorp Vault integration</strong> — секреты хранятся централизованно в Vault и запрашиваются пайплайном динамически, часто с коротким TTL (dynamic secrets), что снижает риск компрометации по сравнению со статичными переменными.</li></ul><p>Пример получения секрета из Vault в GitLab CI через Vault plugin:</p><pre><code>deploy:\n  stage: deploy\n  secrets:\n    DB_PASSWORD:\n      vault:\n        engine:\n          name: kv-v2\n          path: secret\n        path: prod/db\n        field: password\n  script:\n    - echo \"Deploying with secret from Vault\"\n    - ./deploy.sh</code></pre><p>Пример в GitHub Actions с masked secret:</p><pre><code>- name: Deploy\n  env:\n    DB_PASSWORD: ${{ secrets.DB_PASSWORD }}\n  run: ./deploy.sh</code></pre><p>Правила безопасности: секреты должны быть <em>protected</em> (доступны только защищённым веткам/тегам), <em>masked</em> в логах, и никогда не должны попадать в артефакты сборки или коммититься в код.</p>"
-  },
-  {
-   "title": "Docker build & push в pipeline: buildah, kaniko (rootless)",
-   "level": "🟢 Junior",
-   "explanation": "<p>Сборка Docker-образов внутри CI-раннера классическим способом (<code>docker build</code>) требует доступа к Docker daemon, что означает root-права контейнера — риск для безопасности (\"Docker-in-Docker\" проблема). Для сборки без демона и без root применяются rootless-инструменты:</p><ul><li><strong>Kaniko</strong> (Google) — собирает образ из Dockerfile прямо в контейнере, без демона, часто используется в Kubernetes-раннерах (GitLab CI, Jenkins на K8s).</li><li><strong>Buildah</strong> (Red Hat) — CLI-инструмент для сборки OCI/Docker-образов без демона, хорошо сочетается с Podman.</li></ul><p>Пример job в GitLab CI с kaniko:</p><pre><code>build_image:\n  stage: build\n  image:\n    name: gcr.io/kaniko-project/executor:debug\n    entrypoint: [\"\"]\n  script:\n    - /kaniko/executor\n        --context \"${CI_PROJECT_DIR}\"\n        --dockerfile \"${CI_PROJECT_DIR}/Dockerfile\"\n        --destination \"${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}\"</code></pre><p>Пример с buildah:</p><pre><code>build:\n  script:\n    - buildah bud -t myapp:$CI_COMMIT_SHA .\n    - buildah push myapp:$CI_COMMIT_SHA docker://registry.example.com/myapp:$CI_COMMIT_SHA</code></pre><p>Такой подход особенно важен в Kubernetes CI-раннерах, где предоставлять контейнерам привилегированный доступ к Docker socket считается плохой практикой безопасности.</p>"
-  },
-  {
-   "title": "Запуск тестов: unit, integration, coverage reports, junit xml",
-   "level": "🟢 Junior",
-   "explanation": "<p>Автоматический прогон тестов — центральная часть CI. Различают:</p><ul><li><strong>Unit-тесты</strong> — проверяют отдельные функции/модули в изоляции, выполняются быстро.</li><li><strong>Integration-тесты</strong> — проверяют взаимодействие компонентов (например, приложение + реальная БД в Docker-контейнере), выполняются дольше.</li></ul><p>Результаты тестов обычно экспортируются в формате <strong>JUnit XML</strong> — универсальном стандарте, который понимают почти все CI-системы для красивого отображения отчётов (сколько тестов прошло/упало, время выполнения).</p><p>Пример для Go с генерацией JUnit XML и покрытия:</p><pre><code>test:\n  stage: test\n  script:\n    - go install gotest.tools/gotestsum@latest\n    - gotestsum --junitfile report.xml -- -coverprofile=coverage.out ./...\n    - go tool cover -func=coverage.out\n  artifacts:\n    reports:\n      junit: report.xml\n    paths:\n      - coverage.out</code></pre><p>В GitHub Actions отчёт о покрытии часто публикуется через сторонние actions (например, <code>codecov/codecov-action</code>):</p><pre><code>- name: Upload coverage\n  uses: codecov/codecov-action@v4\n  with:\n    files: ./coverage.out</code></pre><p>Метрика <strong>code coverage</strong> (процент строк кода, покрытых тестами) — не гарантия качества, но полезный индикатор для контроля деградации тестового покрытия при code review.</p>"
-  },
-  {
-   "title": "Артефакты: архивирование, передача между stages, retention policy",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>Артефакт</strong> — файл или набор файлов, созданных на одном этапе пайплайна (бинарник, Docker-образ tar, отчёт о тестах, статические файлы фронтенда), которые нужно сохранить и/или передать в следующий stage.</p><p>Без артефактов каждый stage выполняется в изолированном окружении (особенно с Docker executor), и результаты предыдущего этапа были бы потеряны.</p><p>Пример в GitLab CI — передача собранного бинарника из build в deploy:</p><pre><code>build:\n  stage: build\n  script:\n    - go build -o app .\n  artifacts:\n    paths:\n      - app\n    expire_in: 3 days\n\ndeploy:\n  stage: deploy\n  script:\n    - scp app user@server:/opt/app/\n  dependencies:\n    - build</code></pre><p><strong>Retention policy</strong> (<code>expire_in</code> в GitLab, <code>retention-days</code> в GitHub Actions) определяет, сколько времени артефакты хранятся на сервере CI перед автоматическим удалением — это важно для контроля затрат на хранение.</p><pre><code># GitHub Actions\n- uses: actions/upload-artifact@v4\n  with:\n    name: build-output\n    path: dist/\n    retention-days: 7</code></pre><ul><li>Артефакты релизных сборок часто хранят дольше (30-90 дней) или переносят в отдельный artifact repository (Nexus, Artifactory, S3).</li><li>Слишком большие или ненужные артефакты (например, node_modules) не стоит архивировать — используйте cache для таких данных.</li></ul>"
-  },
-  {
-   "title": "Параллельные jobs и matrix builds",
-   "level": "🟡 Middle",
-   "explanation": "<p>Если jobs внутри одного stage не зависят друг от друга, их можно выполнять параллельно, что заметно сокращает общее время пайплайна. Это особенно полезно для запуска тестов на разных версиях языка/ОС или для разделения большого набора тестов на несколько параллельных потоков.</p><p><strong>Matrix build</strong> — механизм автоматической генерации набора jobs как комбинации значений переменных (например, версии Node.js × операционные системы).</p><p>Пример matrix в GitHub Actions:</p><pre><code>jobs:\n  test:\n    strategy:\n      matrix:\n        node: [18, 20, 22]\n        os: [ubuntu-latest, windows-latest]\n    runs-on: ${{ matrix.os }}\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n      - run: npm test</code></pre><p>Это создаст 6 параллельных jobs (3 версии × 2 ОС).</p><p>Пример параллельного разделения тестов в GitLab CI с <code>parallel</code>:</p><pre><code>test:\n  stage: test\n  parallel: 5\n  script:\n    - go test -run \"Test$((CI_NODE_INDEX))\" ./...</code></pre><p>При использовании matrix/parallel важно следить за лимитами конкурентных раннеров — иначе jobs будут стоять в очереди, а не выполняться параллельно, что не даст ожидаемого ускорения.</p>"
-  },
-  {
-   "title": "Multi-env deploy: dev → staging → prod с manual approval gate",
-   "level": "🟡 Middle",
-   "explanation": "<p>Типичный production-пайплайн разворачивает приложение последовательно по цепочке окружений: <strong>dev → staging → production</strong>, повышая уверенность в качестве релиза на каждом шаге. Переход между окружениями (особенно в prod) часто требует <strong>manual approval gate</strong> — паузы, ожидающей подтверждения от человека (тимлида, релиз-менеджера).</p><p>Пример в GitLab CI с ручным gate перед prod:</p><pre><code>deploy_dev:\n  stage: deploy-dev\n  script: ./deploy.sh dev\n  environment:\n    name: dev\n\ndeploy_staging:\n  stage: deploy-staging\n  script: ./deploy.sh staging\n  environment:\n    name: staging\n  when: on_success\n\ndeploy_prod:\n  stage: deploy-prod\n  script: ./deploy.sh prod\n  environment:\n    name: production\n  when: manual\n  only:\n    - main</code></pre><p>Ключевое слово <code>when: manual</code> делает job \"заморозенным\" в пайплайне до тех пор, пока кто-то не нажмёт кнопку \"play\" в UI GitLab.</p><p>В GitHub Actions аналог реализуется через <strong>environments</strong> с настроенными <em>required reviewers</em>:</p><pre><code>jobs:\n  deploy-prod:\n    environment: production\n    runs-on: ubuntu-latest\n    steps:\n      - run: ./deploy.sh prod</code></pre><p>В настройках environment \"production\" указывается список пользователей, чьё одобрение требуется перед запуском job — GitHub автоматически приостановит workflow и запросит approval.</p>"
-  },
-  {
-   "title": "Blue-green deployment: переключение трафика без downtime",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>Blue-green deployment</strong> — стратегия развёртывания, при которой существуют два идентичных окружения: <em>blue</em> (текущая, активная версия) и <em>green</em> (новая версия). Новая версия разворачивается в green-окружении полностью, проходит smoke-тесты, и только после этого трафик мгновенно переключается с blue на green (например, через изменение upstream в load balancer или Service в Kubernetes).</p><p>Главное преимущество — <strong>нулевой downtime</strong> и мгновенный rollback: если что-то не так, трафик просто переключают обратно на blue.</p><p>Пример переключения через Kubernetes Service (меняем selector):</p><pre><code>apiVersion: v1\nkind: Service\nmetadata:\n  name: myapp\nspec:\n  selector:\n    app: myapp\n    version: green   # было blue\n  ports:\n    - port: 80\n      targetPort: 8080</code></pre><pre><code>kubectl patch service myapp -p '{\"spec\":{\"selector\":{\"version\":\"green\"}}}'</code></pre><p>Пример на уровне Nginx с двумя upstream-группами:</p><pre><code>upstream blue { server 10.0.0.1:8080; }\nupstream green { server 10.0.0.2:8080; }\n\nserver {\n    location / {\n        proxy_pass http://green;  # переключение вручную\n    }\n}</code></pre><p>Недостаток подхода — требуется двукратный запас ресурсов (два полных окружения одновременно), что дороже, чем canary или rolling update, но зато откат происходит практически моментально.</p>"
-  },
-  {
-   "title": "Canary release: постепенное увеличение трафика",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>Canary release</strong> — стратегия, при которой новая версия приложения сначала получает небольшую долю трафика (например, 5%), и только после подтверждения стабильности (по метрикам ошибок, latency) доля постепенно увеличивается до 100%.</p><p>Название происходит от практики шахтёров брать канареек в шахты — птицы реагировали на газ раньше людей, служа раннем индикатором проблемы. Аналогично canary-версия \"предупреждает\" о проблемах до того, как они затронут всех пользователей.</p><p>Пример конфигурации Ingress с canary-аннотациями (nginx-ingress):</p><pre><code>apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: myapp-canary\n  annotations:\n    nginx.ingress.kubernetes.io/canary: \"true\"\n    nginx.ingress.kubernetes.io/canary-weight: \"10\"\nspec:\n  rules:\n    - host: myapp.example.com\n      http:\n        paths:\n          - path: /\n            pathType: Prefix\n            backend:\n              service:\n                name: myapp-canary-svc\n                port:\n                  number: 80</code></pre><p>Здесь 10% трафика уходит на canary-версию, 90% — на стабильную. Постепенно увеличивая <code>canary-weight</code> (10% → 25% → 50% → 100%), можно безопасно раскатать релиз.</p><ul><li>Инструменты уровня сервис-меша (Istio, Linkerd) и Flagger позволяют автоматизировать этот процесс с автоматическим rollback при аномалиях метрик.</li><li>В отличие от blue-green, canary даёт более плавный и контролируемый переход, но требует хорошего observability для принятия решения об увеличении трафика.</li></ul>"
-  },
-  {
-   "title": "GitOps: ArgoCD / Flux — sync манифестов из Git в кластер",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>GitOps</strong> — подход к управлению инфраструктурой и деплоем, при котором Git-репозиторий является <em>единственным источником истины</em> (single source of truth) о желаемом состоянии кластера. Специальный контроллер внутри кластера непрерывно сравнивает текущее состояние с состоянием, описанным в Git, и автоматически приводит кластер в соответствие.</p><p>Два самых популярных инструмента: <strong>ArgoCD</strong> и <strong>Flux</strong>. Оба работают по pull-модели: агент внутри кластера сам \"тянет\" изменения из Git, в отличие от классического push-деплоя из CI-пайплайна.</p><p>Пример Application-манифеста ArgoCD:</p><pre><code>apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: myapp\n  namespace: argocd\nspec:\n  project: default\n  source:\n    repoURL: https://github.com/org/myapp-manifests.git\n    targetRevision: main\n    path: k8s/prod\n  destination:\n    server: https://kubernetes.default.svc\n    namespace: myapp\n  syncPolicy:\n    automated:\n      prune: true\n      selfHeal: true</code></pre><p>Параметр <code>selfHeal: true</code> означает, что если кто-то вручную изменит ресурс в кластере (например, через <code>kubectl edit</code>), ArgoCD автоматически откатит изменение к версии из Git.</p><ul><li>Преимущества: полный аудит через историю Git-коммитов, легкий rollback (<code>git revert</code>), декларативность.</li><li>Flux работает похожим образом, но чаще используется в связке с Helm-релизами и Kustomize через CRD <code>GitRepository</code>/<code>Kustomization</code>.</li></ul>"
-  }
- ],
- "quiz": [
-  {
-   "q": "Чем Continuous Deployment отличается от Continuous Delivery?",
-   "options": [
-    "Deployment не включает тесты, Delivery включает",
-    "В Deployment релиз в production происходит автоматически, без ручного подтверждения",
-    "Delivery работает только с Docker, Deployment — с VM",
-    "Это синонимы, отличий нет"
-   ],
-   "answer": 1,
-   "explain": "Continuous Delivery готовит релиз к выпуску, но требует ручного подтверждения перед production. Continuous Deployment выполняет этот шаг полностью автоматически при прохождении всех проверок."
-  },
-  {
-   "q": "Какое событие обычно триггерит релизный пайплайн сборки версии в GitHub Actions?",
-   "options": [
-    "push тега (например, v1.2.3)",
-    "открытие issue",
-    "комментарий в discussions",
-    "fork репозитория"
-   ],
-   "answer": 0,
-   "explain": "Push тега (например, соответствующего semantic versioning v1.2.3) — стандартный триггер для релизных пайплайнов, отделяющий их от обычных CI-запусков на push в ветку."
-  },
-  {
-   "q": "Какой синтаксис Jenkinsfile рекомендуется для новых проектов и почему?",
-   "options": [
-    "Scripted, так как он проще",
-    "Declarative, так как он структурирован и проверяется линтером на этапе parse",
-    "Scripted, потому что declarative устарел",
-    "Оба синтаксиса одинаково не рекомендуются"
-   ],
-   "answer": 1,
-   "explain": "Declarative pipeline — современный стандарт: он строже структурирован, легче читается и проверяется встроенным линтером Jenkins до выполнения, что снижает количество ошибок."
-  },
-  {
-   "q": "В каком блоке declarative Jenkinsfile выполняется действие только при провале сборки?",
-   "options": [
-    "post { failure { ... } }",
-    "post { always { ... } }",
-    "stage { onFail { ... } }",
-    "pipeline { error { ... } }"
-   ],
-   "answer": 0,
-   "explain": "Блок post с секцией failure выполняется только тогда, когда пайплайн или stage завершился с ошибкой, например, для отправки уведомления."
-  },
-  {
-   "q": "В GitLab CI что определяет, какие файлы будут переданы из одного stage в другой?",
-   "options": [
-    "cache",
-    "artifacts",
-    "variables",
-    "rules"
-   ],
-   "answer": 1,
-   "explain": "artifacts указывают, какие файлы после выполнения job сохраняются и становятся доступны в последующих stages пайплайна. cache используется для ускорения повторных запусков (например, зависимостей), а не для передачи между stages."
-  },
-  {
-   "q": "Как в GitHub Actions правильно получить доступ к секретному токену внутри workflow?",
-   "options": [
-    "Записать токен прямо в yaml файл",
-    "Через контекст secrets.*, например ${{ secrets.API_TOKEN }}",
-    "Передать через аргумент командной строки в открытом виде",
-    "Секреты в GitHub Actions не поддерживаются"
-   ],
-   "answer": 1,
-   "explain": "GitHub Actions хранит секреты в настройках репозитория и предоставляет доступ к ним через контекст secrets, значения при этом маскируются в логах выполнения."
-  },
-  {
-   "q": "В чём преимущество использования HashiCorp Vault для секретов в CI/CD по сравнению со статичными encrypted variables?",
-   "options": [
-    "Vault работает быстрее",
-    "Vault поддерживает динамические секреты с коротким TTL, снижая риск компрометации",
-    "Vault не требует настройки",
-    "Encrypted variables вообще не подходят для CI/CD"
-   ],
-   "answer": 1,
-   "explain": "Vault может выдавать динамические, короткоживущие credentials, которые автоматически истекают, что существенно снижает риск при утечке по сравнению со статичными переменными, действующими бессрочно."
-  },
-  {
-   "q": "Почему kaniko или buildah предпочтительны для сборки Docker-образов в Kubernetes CI-раннерах по сравнению с обычным docker build?",
-   "options": [
-    "Они собирают образы быстрее в 10 раз",
-    "Они позволяют собирать образы без Docker daemon и без привилегированного root-доступа",
-    "Они поддерживают только Windows-контейнеры",
-    "docker build больше не поддерживается индустрией"
-   ],
-   "answer": 1,
-   "explain": "kaniko и buildah — rootless-инструменты, не требующие Docker daemon, что устраняет необходимость давать раннеру привилегированный доступ к Docker socket — существенный риск безопасности в Kubernetes."
-  },
-  {
-   "q": "В каком стандартном формате CI-системы обычно принимают отчёты о результатах тестов для унифицированного отображения?",
-   "options": [
-    "CSV",
-    "JUnit XML",
-    "YAML",
-    "Markdown"
-   ],
-   "answer": 1,
-   "explain": "JUnit XML — де-факто стандартный формат отчётов о тестах, который понимают почти все CI-платформы (Jenkins, GitLab CI, GitHub Actions), позволяя единообразно отображать статистику прохождения тестов."
-  },
-  {
-   "q": "Что делает параметр expire_in (GitLab CI) или retention-days (GitHub Actions) для артефактов?",
-   "options": [
-    "Ограничивает размер артефакта в мегабайтах",
-    "Определяет время хранения артефакта перед автоматическим удалением",
-    "Задаёт частоту пересборки артефакта",
-    "Шифрует артефакт на указанный срок"
-   ],
-   "answer": 1,
-   "explain": "Эти параметры задают retention policy — сколько времени артефакт хранится на сервере CI, после чего автоматически удаляется, что помогает контролировать расход дискового пространства."
-  },
-  {
-   "q": "Какой ключевой недостаток у blue-green deployment по сравнению с canary release?",
-   "options": [
-    "Blue-green требует двукратный запас ресурсов (два полных окружения одновременно)",
-    "Blue-green невозможно откатить быстро",
-    "Blue-green не поддерживается в Kubernetes",
-    "Blue-green нельзя использовать с базами данных"
-   ],
-   "answer": 0,
-   "explain": "Blue-green требует одновременного существования двух полноценных сред (текущей и новой), что удваивает потребление ресурсов на время деплоя, в отличие от canary, где новая версия сначала занимает лишь малую долю ресурсов."
-  },
-  {
-   "q": "В чём заключается принцип работы GitOps-контроллеров, таких как ArgoCD или Flux?",
-   "options": [
-    "CI-пайплайн сам выполняет kubectl apply в кластер (push-модель)",
-    "Агент внутри кластера сам подтягивает изменения из Git и приводит состояние кластера в соответствие (pull-модель)",
-    "Изменения применяются только вручную администратором кластера",
-    "GitOps работает исключительно с виртуальными машинами, не с Kubernetes"
-   ],
-   "answer": 1,
-   "explain": "GitOps-инструменты (ArgoCD, Flux) используют pull-модель: контроллер внутри кластера сам сравнивает состояние с Git-репозиторием и синхронизирует его, а не CI-пайплайн push-ем меняет кластер напрямую."
-  }
- ]
+  "phase": "Phase 3 — CI/CD + Terraform + Ansible",
+  "section": "🔄 CI/CD Pipelines",
+  "topics": [
+    {
+      "title": "Концепции: CI vs CD (Delivery vs Deployment) — отличия",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>Continuous Integration (CI)</strong> — практика, при которой разработчики часто (несколько раз в день) вливают изменения в общую ветку. Каждый коммит автоматически собирается и прогоняется через тесты, что позволяет находить конфликты и баги на раннем этапе.</p><p><strong>Continuous Delivery</strong> — расширение CI: после успешной сборки и тестов приложение автоматически готовится к релизу (собирается артефакт, образ), но выпуск в production делает человек — нажатием кнопки.</p><p><strong>Continuous Deployment</strong> — следующий шаг: если все автоматические проверки прошли успешно, изменения выкатываются в production <em>без</em> ручного подтверждения.</p><table><tr><th>Термин</th><th>Сборка</th><th>Тесты</th><th>Деплой в prod</th></tr><tr><td>CI</td><td>авто</td><td>авто</td><td>нет</td></tr><tr><td>Continuous Delivery</td><td>авто</td><td>авто</td><td>ручной клик</td></tr><tr><td>Continuous Deployment</td><td>авто</td><td>авто</td><td>полностью авто</td></tr></table><p>Пример пайплайна на GitLab CI, реализующего CI без деплоя:</p><pre><code>stages:\n  - build\n  - test\n\nbuild:\n  stage: build\n  script:\n    - docker build -t myapp:$CI_COMMIT_SHA .\n\nunit_tests:\n  stage: test\n  script:\n    - go test ./...</code></pre><p>Различие важно на собеседованиях: многие путают Delivery и Deployment, хотя ключевое отличие — наличие ручного gate перед production.</p>",
+      "links": [
+        {
+          "title": "GitLab Docs — Introduction to CI/CD concepts",
+          "url": "https://docs.gitlab.com/ee/ci/introduction/"
+        },
+        {
+          "title": "Atlassian — Continuous Integration vs Delivery vs Deployment",
+          "url": "https://www.atlassian.com/continuous-delivery/principles/continuous-integration-vs-delivery-vs-deployment"
+        },
+        {
+          "title": "AWS — What is CI/CD?",
+          "url": "https://aws.amazon.com/devops/continuous-integration/"
+        }
+      ]
+    },
+    {
+      "title": "Git webhooks: как pipeline триггерится на push/MR/tag",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>Webhook</strong> — это HTTP-запрос (обычно POST), который Git-провайдер (GitHub, GitLab, Bitbucket) отправляет на заданный URL при возникновении события в репозитории: push, создание merge request/pull request, создание тега, комментарий и т.д.</p><p>CI-система (Jenkins, GitLab CI, GitHub Actions) либо сама принимает webhook на свой endpoint, либо (в случае GitHub Actions/GitLab CI) события обрабатываются встроенным механизмом без ручной настройки webhook.</p><p>Пример настройки webhook в Jenkins для GitHub: в репозитории указывается URL <code>http://jenkins.example.com/github-webhook/</code>, событие — <strong>push</strong>. Jenkins должен иметь установленный плагин GitHub Integration.</p><p>В GitHub Actions триггер описывается прямо в workflow-файле:</p><pre><code>on:\n  push:\n    branches: [main]\n  pull_request:\n    types: [opened, synchronize]\n  push:\n    tags:\n      - 'v*'</code></pre><p>В GitLab CI аналогично через секцию <code>rules</code>:</p><pre><code>job:\n  script: echo \"run\"\n  rules:\n    - if: '$CI_COMMIT_TAG'\n    - if: '$CI_PIPELINE_SOURCE == \"merge_request_event\"'</code></pre><ul><li>Push-событие — самый частый триггер для CI-тестов.</li><li>MR/PR-событие — запускает проверки перед мержем (линтеры, тесты).</li><li>Tag-событие — обычно триггерит релизный пайплайн (сборка и публикация версии).</li></ul><p>Важно защищать webhook secret-токеном, чтобы исключить поддельные запросы.</p>",
+      "links": [
+        {
+          "title": "GitHub Docs — Webhooks",
+          "url": "https://docs.github.com/en/webhooks/about-webhooks"
+        },
+        {
+          "title": "GitLab Docs — Webhooks",
+          "url": "https://docs.gitlab.com/ee/user/project/integrations/webhooks.html"
+        },
+        {
+          "title": "GitHub Actions Docs — Events that trigger workflows",
+          "url": "https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows"
+        }
+      ]
+    },
+    {
+      "title": "Jenkins: установка, Jenkinsfile, declarative vs scripted pipeline",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>Jenkins</strong> — один из старейших и самых распространённых CI/CD серверов с открытым исходным кодом на Java. Устанавливается как standalone-сервис, через Docker-образ <code>jenkins/jenkins:lts</code> или как war-файл под Tomcat.</p><p>Быстрый старт в Docker:</p><pre><code>docker run -d -p 8080:8080 -p 50000:50000 -v jenkins_home:/var/jenkins_home jenkins/jenkins:lts</code></pre><p>Пайплайны в Jenkins описываются в файле <code>Jenkinsfile</code>, который хранится в корне репозитория. Есть два синтаксиса:</p><ul><li><strong>Declarative pipeline</strong> — современный, структурированный, легче читается, рекомендуется для большинства случаев.</li><li><strong>Scripted pipeline</strong> — старый, на чистом Groovy, даёт больше гибкости, но сложнее поддерживать.</li></ul><p>Пример declarative Jenkinsfile:</p><pre><code>pipeline {\n    agent any\n    stages {\n        stage('Build') {\n            steps {\n                sh 'go build -o app .'\n            }\n        }\n        stage('Test') {\n            steps {\n                sh 'go test ./...'\n            }\n        }\n    }\n}</code></pre><p>Пример того же самого в scripted-стиле:</p><pre><code>node {\n    stage('Build') {\n        sh 'go build -o app .'\n    }\n    stage('Test') {\n        sh 'go test ./...'\n    }\n}</code></pre><p>Declarative проверяется линтером Jenkins на этапе parse, что снижает количество ошибок в runtime — поэтому в новых проектах предпочитают именно его.</p>",
+      "links": [
+        {
+          "title": "Jenkins Docs — Pipeline",
+          "url": "https://www.jenkins.io/doc/book/pipeline/"
+        },
+        {
+          "title": "Jenkins Docs — Pipeline syntax (Declarative vs Scripted)",
+          "url": "https://www.jenkins.io/doc/book/pipeline/syntax/"
+        },
+        {
+          "title": "Jenkins Docs — Installing Jenkins",
+          "url": "https://www.jenkins.io/doc/book/installing/"
+        }
+      ]
+    },
+    {
+      "title": "Jenkins: stages, steps, post (always/success/failure), параметры",
+      "level": "🟢 Junior",
+      "explanation": "<p>Declarative Jenkinsfile строится из блока <code>pipeline</code>, внутри которого объявляются <strong>stages</strong> (логические этапы: Build, Test, Deploy), а внутри каждого stage — <strong>steps</strong> (конкретные команды).</p><p>Блок <code>post</code> определяет действия после выполнения stage или всего пайплайна в зависимости от результата:</p><ul><li><code>always</code> — выполняется всегда, независимо от результата;</li><li><code>success</code> — только если всё прошло успешно;</li><li><code>failure</code> — только при ошибке;</li><li><code>unstable</code> — при нестабильном результате (например, часть тестов упала, но не критично).</li></ul><p>Параметры позволяют передавать значения при ручном запуске сборки:</p><pre><code>pipeline {\n    agent any\n    parameters {\n        choice(name: 'ENV', choices: ['dev', 'staging', 'prod'], description: 'Окружение')\n        string(name: 'VERSION', defaultValue: '1.0.0')\n    }\n    stages {\n        stage('Deploy') {\n            steps {\n                echo \"Deploying version ${params.VERSION} to ${params.ENV}\"\n            }\n        }\n    }\n    post {\n        always {\n            echo 'Пайплайн завершён'\n        }\n        success {\n            slackSend(message: \"Deploy ${params.VERSION} успешен\")\n        }\n        failure {\n            mail to: 'devops@example.com', subject: 'Build failed', body: 'Проверьте логи'\n        }\n    }\n}</code></pre><p>Такая структура даёт понятную обратную связь команде: успех уведомляется в Slack, а провал — по email, без дублирования логики между stages.</p>",
+      "links": [
+        {
+          "title": "Jenkins Docs — Pipeline syntax: post условия",
+          "url": "https://www.jenkins.io/doc/book/pipeline/syntax/#post"
+        },
+        {
+          "title": "Jenkins Docs — Parameters в pipeline",
+          "url": "https://www.jenkins.io/doc/book/pipeline/syntax/#parameters"
+        },
+        {
+          "title": "Jenkins Docs — Pipeline steps reference",
+          "url": "https://www.jenkins.io/doc/pipeline/steps/"
+        }
+      ]
+    },
+    {
+      "title": "GitLab CI: .gitlab-ci.yml, stages, jobs, artifacts, cache, runners",
+      "level": "🟢 Junior",
+      "explanation": "<p>GitLab CI — встроенная в GitLab CI/CD-система. Конфигурация описывается декларативно в YAML-файле <code>.gitlab-ci.yml</code> в корне репозитория.</p><p>Ключевые понятия:</p><ul><li><strong>stages</strong> — последовательные этапы (build, test, deploy);</li><li><strong>jobs</strong> — конкретные задачи, каждая привязана к stage; jobs внутри одного stage выполняются параллельно;</li><li><strong>artifacts</strong> — файлы, которые сохраняются после job и передаются в последующие stages (например, скомпилированный бинарник);</li><li><strong>cache</strong> — данные (например, <code>node_modules</code>), которые кешируются между запусками для ускорения;</li><li><strong>runners</strong> — агенты (Docker, shell, Kubernetes executor), выполняющие jobs; бывают shared (общие для всего GitLab) и specific (закреплённые за проектом).</li></ul><pre><code>stages:\n  - build\n  - test\n  - deploy\n\nbuild_job:\n  stage: build\n  script:\n    - npm install\n    - npm run build\n  cache:\n    key: node-modules\n    paths:\n      - node_modules/\n  artifacts:\n    paths:\n      - dist/\n    expire_in: 1 week\n\ntest_job:\n  stage: test\n  script:\n    - npm test\n\ndeploy_job:\n  stage: deploy\n  script:\n    - ./deploy.sh\n  only:\n    - main</code></pre><p>Runner регистрируется командой <code>gitlab-runner register</code> с указанием URL GitLab и токена проекта. Executor может быть <code>docker</code>, <code>shell</code>, <code>kubernetes</code> — выбор влияет на изоляцию и скорость запуска jobs.</p>",
+      "links": [
+        {
+          "title": "GitLab Docs — CI/CD YAML syntax reference",
+          "url": "https://docs.gitlab.com/ee/ci/yaml/"
+        },
+        {
+          "title": "GitLab Docs — Caching",
+          "url": "https://docs.gitlab.com/ee/ci/caching/"
+        },
+        {
+          "title": "GitLab Docs — GitLab Runner",
+          "url": "https://docs.gitlab.com/runner/"
+        }
+      ]
+    },
+    {
+      "title": "GitHub Actions: workflow yaml, jobs, steps, actions/checkout, secrets",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>GitHub Actions</strong> — встроенная CI/CD платформа GitHub. Workflow-файлы хранятся в <code>.github/workflows/*.yml</code> и описывают, при каких событиях (<code>on:</code>) и какие <strong>jobs</strong> запускать.</p><p>Каждый job состоит из <strong>steps</strong> — последовательных действий, которые могут быть либо готовыми <em>actions</em> из marketplace (например, <code>actions/checkout</code> для клонирования репозитория), либо простыми shell-командами через <code>run:</code>.</p><pre><code>name: CI\n\non:\n  push:\n    branches: [main]\n\njobs:\n  build-and-test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n\n      - name: Setup Node\n        uses: actions/setup-node@v4\n        with:\n          node-version: '20'\n\n      - name: Install deps\n        run: npm ci\n\n      - name: Run tests\n        run: npm test\n\n      - name: Deploy\n        env:\n          API_TOKEN: ${{ secrets.API_TOKEN }}\n        run: ./deploy.sh</code></pre><p><strong>Secrets</strong> хранятся в настройках репозитория (Settings → Secrets and variables → Actions) и доступны в workflow через контекст <code>secrets.*</code>, не попадая в логи в открытом виде.</p><ul><li><code>runs-on</code> задаёт тип раннера (ubuntu-latest, windows-latest, self-hosted);</li><li>jobs по умолчанию выполняются параллельно, если не указана зависимость <code>needs:</code>;</li><li>marketplace-actions значительно ускоряют написание пайплайнов, избавляя от ручной настройки окружения.</li></ul>",
+      "links": [
+        {
+          "title": "GitHub Docs — Workflow syntax for GitHub Actions",
+          "url": "https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions"
+        },
+        {
+          "title": "GitHub Docs — Using secrets in GitHub Actions",
+          "url": "https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions"
+        },
+        {
+          "title": "GitHub — actions/checkout repository",
+          "url": "https://github.com/actions/checkout"
+        }
+      ]
+    },
+    {
+      "title": "Секреты в pipeline: Vault integration, encrypted vars",
+      "level": "🟢 Junior",
+      "explanation": "<p>Хранить пароли, токены и API-ключи в открытом виде в репозитории или в коде пайплайна — критическая ошибка безопасности. Существует два основных подхода:</p><ul><li><strong>Encrypted variables</strong> — секреты хранятся в зашифрованном виде на стороне CI-платформы (GitHub Secrets, GitLab CI/CD Variables с флагом <em>masked + protected</em>, Jenkins Credentials) и подставляются в переменные окружения во время запуска job, не отображаясь в логах.</li><li><strong>HashiCorp Vault integration</strong> — секреты хранятся централизованно в Vault и запрашиваются пайплайном динамически, часто с коротким TTL (dynamic secrets), что снижает риск компрометации по сравнению со статичными переменными.</li></ul><p>Пример получения секрета из Vault в GitLab CI через Vault plugin:</p><pre><code>deploy:\n  stage: deploy\n  secrets:\n    DB_PASSWORD:\n      vault:\n        engine:\n          name: kv-v2\n          path: secret\n        path: prod/db\n        field: password\n  script:\n    - echo \"Deploying with secret from Vault\"\n    - ./deploy.sh</code></pre><p>Пример в GitHub Actions с masked secret:</p><pre><code>- name: Deploy\n  env:\n    DB_PASSWORD: ${{ secrets.DB_PASSWORD }}\n  run: ./deploy.sh</code></pre><p>Правила безопасности: секреты должны быть <em>protected</em> (доступны только защищённым веткам/тегам), <em>masked</em> в логах, и никогда не должны попадать в артефакты сборки или коммититься в код.</p>",
+      "links": [
+        {
+          "title": "HashiCorp Vault Docs — Introduction",
+          "url": "https://developer.hashicorp.com/vault/docs"
+        },
+        {
+          "title": "GitLab Docs — Use HashiCorp Vault secrets in CI/CD",
+          "url": "https://docs.gitlab.com/ee/ci/secrets/"
+        },
+        {
+          "title": "GitHub Docs — Encrypted secrets",
+          "url": "https://docs.github.com/en/actions/security-guides/encrypted-secrets"
+        }
+      ]
+    },
+    {
+      "title": "Docker build & push в pipeline: buildah, kaniko (rootless)",
+      "level": "🟢 Junior",
+      "explanation": "<p>Сборка Docker-образов внутри CI-раннера классическим способом (<code>docker build</code>) требует доступа к Docker daemon, что означает root-права контейнера — риск для безопасности (\"Docker-in-Docker\" проблема). Для сборки без демона и без root применяются rootless-инструменты:</p><ul><li><strong>Kaniko</strong> (Google) — собирает образ из Dockerfile прямо в контейнере, без демона, часто используется в Kubernetes-раннерах (GitLab CI, Jenkins на K8s).</li><li><strong>Buildah</strong> (Red Hat) — CLI-инструмент для сборки OCI/Docker-образов без демона, хорошо сочетается с Podman.</li></ul><p>Пример job в GitLab CI с kaniko:</p><pre><code>build_image:\n  stage: build\n  image:\n    name: gcr.io/kaniko-project/executor:debug\n    entrypoint: [\"\"]\n  script:\n    - /kaniko/executor\n        --context \"${CI_PROJECT_DIR}\"\n        --dockerfile \"${CI_PROJECT_DIR}/Dockerfile\"\n        --destination \"${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}\"</code></pre><p>Пример с buildah:</p><pre><code>build:\n  script:\n    - buildah bud -t myapp:$CI_COMMIT_SHA .\n    - buildah push myapp:$CI_COMMIT_SHA docker://registry.example.com/myapp:$CI_COMMIT_SHA</code></pre><p>Такой подход особенно важен в Kubernetes CI-раннерах, где предоставлять контейнерам привилегированный доступ к Docker socket считается плохой практикой безопасности.</p>",
+      "links": [
+        {
+          "title": "Kaniko GitHub — сборка образов без Docker daemon",
+          "url": "https://github.com/GoogleContainerTools/kaniko"
+        },
+        {
+          "title": "Buildah Docs — официальная документация",
+          "url": "https://github.com/containers/buildah/tree/main/docs"
+        },
+        {
+          "title": "GitLab Docs — Build images with Kaniko",
+          "url": "https://docs.gitlab.com/ee/ci/docker/using_kaniko.html"
+        }
+      ]
+    },
+    {
+      "title": "Запуск тестов: unit, integration, coverage reports, junit xml",
+      "level": "🟢 Junior",
+      "explanation": "<p>Автоматический прогон тестов — центральная часть CI. Различают:</p><ul><li><strong>Unit-тесты</strong> — проверяют отдельные функции/модули в изоляции, выполняются быстро.</li><li><strong>Integration-тесты</strong> — проверяют взаимодействие компонентов (например, приложение + реальная БД в Docker-контейнере), выполняются дольше.</li></ul><p>Результаты тестов обычно экспортируются в формате <strong>JUnit XML</strong> — универсальном стандарте, который понимают почти все CI-системы для красивого отображения отчётов (сколько тестов прошло/упало, время выполнения).</p><p>Пример для Go с генерацией JUnit XML и покрытия:</p><pre><code>test:\n  stage: test\n  script:\n    - go install gotest.tools/gotestsum@latest\n    - gotestsum --junitfile report.xml -- -coverprofile=coverage.out ./...\n    - go tool cover -func=coverage.out\n  artifacts:\n    reports:\n      junit: report.xml\n    paths:\n      - coverage.out</code></pre><p>В GitHub Actions отчёт о покрытии часто публикуется через сторонние actions (например, <code>codecov/codecov-action</code>):</p><pre><code>- name: Upload coverage\n  uses: codecov/codecov-action@v4\n  with:\n    files: ./coverage.out</code></pre><p>Метрика <strong>code coverage</strong> (процент строк кода, покрытых тестами) — не гарантия качества, но полезный индикатор для контроля деградации тестового покрытия при code review.</p>",
+      "links": [
+        {
+          "title": "GitLab Docs — Unit test reports (JUnit)",
+          "url": "https://docs.gitlab.com/ee/ci/testing/unit_test_reports.html"
+        },
+        {
+          "title": "GitHub Docs — Publishing test results",
+          "url": "https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions"
+        },
+        {
+          "title": "Codecov Docs — GitHub Action для отчётов о покрытии",
+          "url": "https://github.com/codecov/codecov-action"
+        }
+      ]
+    },
+    {
+      "title": "Артефакты: архивирование, передача между stages, retention policy",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>Артефакт</strong> — файл или набор файлов, созданных на одном этапе пайплайна (бинарник, Docker-образ tar, отчёт о тестах, статические файлы фронтенда), которые нужно сохранить и/или передать в следующий stage.</p><p>Без артефактов каждый stage выполняется в изолированном окружении (особенно с Docker executor), и результаты предыдущего этапа были бы потеряны.</p><p>Пример в GitLab CI — передача собранного бинарника из build в deploy:</p><pre><code>build:\n  stage: build\n  script:\n    - go build -o app .\n  artifacts:\n    paths:\n      - app\n    expire_in: 3 days\n\ndeploy:\n  stage: deploy\n  script:\n    - scp app user@server:/opt/app/\n  dependencies:\n    - build</code></pre><p><strong>Retention policy</strong> (<code>expire_in</code> в GitLab, <code>retention-days</code> в GitHub Actions) определяет, сколько времени артефакты хранятся на сервере CI перед автоматическим удалением — это важно для контроля затрат на хранение.</p><pre><code># GitHub Actions\n- uses: actions/upload-artifact@v4\n  with:\n    name: build-output\n    path: dist/\n    retention-days: 7</code></pre><ul><li>Артефакты релизных сборок часто хранят дольше (30-90 дней) или переносят в отдельный artifact repository (Nexus, Artifactory, S3).</li><li>Слишком большие или ненужные артефакты (например, node_modules) не стоит архивировать — используйте cache для таких данных.</li></ul>",
+      "links": [
+        {
+          "title": "GitLab Docs — Job artifacts",
+          "url": "https://docs.gitlab.com/ee/ci/jobs/job_artifacts.html"
+        },
+        {
+          "title": "GitHub — actions/upload-artifact",
+          "url": "https://github.com/actions/upload-artifact"
+        },
+        {
+          "title": "GitHub Docs — Storing workflow data as artifacts",
+          "url": "https://docs.github.com/en/actions/using-workflows/storing-workflow-data-as-artifacts"
+        }
+      ]
+    },
+    {
+      "title": "Параллельные jobs и matrix builds",
+      "level": "🟡 Middle",
+      "explanation": "<p>Если jobs внутри одного stage не зависят друг от друга, их можно выполнять параллельно, что заметно сокращает общее время пайплайна. Это особенно полезно для запуска тестов на разных версиях языка/ОС или для разделения большого набора тестов на несколько параллельных потоков.</p><p><strong>Matrix build</strong> — механизм автоматической генерации набора jobs как комбинации значений переменных (например, версии Node.js × операционные системы).</p><p>Пример matrix в GitHub Actions:</p><pre><code>jobs:\n  test:\n    strategy:\n      matrix:\n        node: [18, 20, 22]\n        os: [ubuntu-latest, windows-latest]\n    runs-on: ${{ matrix.os }}\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n      - run: npm test</code></pre><p>Это создаст 6 параллельных jobs (3 версии × 2 ОС).</p><p>Пример параллельного разделения тестов в GitLab CI с <code>parallel</code>:</p><pre><code>test:\n  stage: test\n  parallel: 5\n  script:\n    - go test -run \"Test$((CI_NODE_INDEX))\" ./...</code></pre><p>При использовании matrix/parallel важно следить за лимитами конкурентных раннеров — иначе jobs будут стоять в очереди, а не выполняться параллельно, что не даст ожидаемого ускорения.</p>",
+      "links": [
+        {
+          "title": "GitHub Docs — Using a matrix for your jobs",
+          "url": "https://docs.github.com/en/actions/using-jobs/using-a-build-matrix-for-your-jobs"
+        },
+        {
+          "title": "GitLab Docs — Parallelize jobs",
+          "url": "https://docs.gitlab.com/ee/ci/jobs/job_control.html#parallelize-large-jobs"
+        }
+      ]
+    },
+    {
+      "title": "Multi-env deploy: dev → staging → prod с manual approval gate",
+      "level": "🟡 Middle",
+      "explanation": "<p>Типичный production-пайплайн разворачивает приложение последовательно по цепочке окружений: <strong>dev → staging → production</strong>, повышая уверенность в качестве релиза на каждом шаге. Переход между окружениями (особенно в prod) часто требует <strong>manual approval gate</strong> — паузы, ожидающей подтверждения от человека (тимлида, релиз-менеджера).</p><p>Пример в GitLab CI с ручным gate перед prod:</p><pre><code>deploy_dev:\n  stage: deploy-dev\n  script: ./deploy.sh dev\n  environment:\n    name: dev\n\ndeploy_staging:\n  stage: deploy-staging\n  script: ./deploy.sh staging\n  environment:\n    name: staging\n  when: on_success\n\ndeploy_prod:\n  stage: deploy-prod\n  script: ./deploy.sh prod\n  environment:\n    name: production\n  when: manual\n  only:\n    - main</code></pre><p>Ключевое слово <code>when: manual</code> делает job \"заморозенным\" в пайплайне до тех пор, пока кто-то не нажмёт кнопку \"play\" в UI GitLab.</p><p>В GitHub Actions аналог реализуется через <strong>environments</strong> с настроенными <em>required reviewers</em>:</p><pre><code>jobs:\n  deploy-prod:\n    environment: production\n    runs-on: ubuntu-latest\n    steps:\n      - run: ./deploy.sh prod</code></pre><p>В настройках environment \"production\" указывается список пользователей, чьё одобрение требуется перед запуском job — GitHub автоматически приостановит workflow и запросит approval.</p>",
+      "links": [
+        {
+          "title": "GitHub Docs — Using environments for deployment",
+          "url": "https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment"
+        },
+        {
+          "title": "GitLab Docs — Environments и deployments",
+          "url": "https://docs.gitlab.com/ee/ci/environments/"
+        },
+        {
+          "title": "GitLab Docs — Manual jobs (when: manual)",
+          "url": "https://docs.gitlab.com/ee/ci/jobs/job_control.html#create-a-job-that-must-be-run-manually"
+        }
+      ]
+    },
+    {
+      "title": "Blue-green deployment: переключение трафика без downtime",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>Blue-green deployment</strong> — стратегия развёртывания, при которой существуют два идентичных окружения: <em>blue</em> (текущая, активная версия) и <em>green</em> (новая версия). Новая версия разворачивается в green-окружении полностью, проходит smoke-тесты, и только после этого трафик мгновенно переключается с blue на green (например, через изменение upstream в load balancer или Service в Kubernetes).</p><p>Главное преимущество — <strong>нулевой downtime</strong> и мгновенный rollback: если что-то не так, трафик просто переключают обратно на blue.</p><p>Пример переключения через Kubernetes Service (меняем selector):</p><pre><code>apiVersion: v1\nkind: Service\nmetadata:\n  name: myapp\nspec:\n  selector:\n    app: myapp\n    version: green   # было blue\n  ports:\n    - port: 80\n      targetPort: 8080</code></pre><pre><code>kubectl patch service myapp -p '{\"spec\":{\"selector\":{\"version\":\"green\"}}}'</code></pre><p>Пример на уровне Nginx с двумя upstream-группами:</p><pre><code>upstream blue { server 10.0.0.1:8080; }\nupstream green { server 10.0.0.2:8080; }\n\nserver {\n    location / {\n        proxy_pass http://green;  # переключение вручную\n    }\n}</code></pre><p>Недостаток подхода — требуется двукратный запас ресурсов (два полных окружения одновременно), что дороже, чем canary или rolling update, но зато откат происходит практически моментально.</p>",
+      "links": [
+        {
+          "title": "Kubernetes Docs — Service (переключение selector)",
+          "url": "https://kubernetes.io/docs/concepts/services-networking/service/"
+        },
+        {
+          "title": "Martin Fowler — BlueGreenDeployment",
+          "url": "https://martinfowler.com/bliki/BlueGreenDeployment.html"
+        },
+        {
+          "title": "AWS Prescriptive Guidance — Blue/green deployments",
+          "url": "https://docs.aws.amazon.com/whitepapers/latest/overview-deployment-options/bluegreen-deployments.html"
+        }
+      ]
+    },
+    {
+      "title": "Canary release: постепенное увеличение трафика",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>Canary release</strong> — стратегия, при которой новая версия приложения сначала получает небольшую долю трафика (например, 5%), и только после подтверждения стабильности (по метрикам ошибок, latency) доля постепенно увеличивается до 100%.</p><p>Название происходит от практики шахтёров брать канареек в шахты — птицы реагировали на газ раньше людей, служа раннем индикатором проблемы. Аналогично canary-версия \"предупреждает\" о проблемах до того, как они затронут всех пользователей.</p><p>Пример конфигурации Ingress с canary-аннотациями (nginx-ingress):</p><pre><code>apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: myapp-canary\n  annotations:\n    nginx.ingress.kubernetes.io/canary: \"true\"\n    nginx.ingress.kubernetes.io/canary-weight: \"10\"\nspec:\n  rules:\n    - host: myapp.example.com\n      http:\n        paths:\n          - path: /\n            pathType: Prefix\n            backend:\n              service:\n                name: myapp-canary-svc\n                port:\n                  number: 80</code></pre><p>Здесь 10% трафика уходит на canary-версию, 90% — на стабильную. Постепенно увеличивая <code>canary-weight</code> (10% → 25% → 50% → 100%), можно безопасно раскатать релиз.</p><ul><li>Инструменты уровня сервис-меша (Istio, Linkerd) и Flagger позволяют автоматизировать этот процесс с автоматическим rollback при аномалиях метрик.</li><li>В отличие от blue-green, canary даёт более плавный и контролируемый переход, но требует хорошего observability для принятия решения об увеличении трафика.</li></ul>",
+      "links": [
+        {
+          "title": "Kubernetes Docs — NGINX Ingress canary аннотации",
+          "url": "https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/#canary"
+        },
+        {
+          "title": "Flagger Docs — Canary deployments",
+          "url": "https://docs.flagger.app/usage/progressive-delivery"
+        },
+        {
+          "title": "Istio Docs — Traffic Management (canary)",
+          "url": "https://istio.io/latest/docs/concepts/traffic-management/"
+        }
+      ]
+    },
+    {
+      "title": "GitOps: ArgoCD / Flux — sync манифестов из Git в кластер",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>GitOps</strong> — подход к управлению инфраструктурой и деплоем, при котором Git-репозиторий является <em>единственным источником истины</em> (single source of truth) о желаемом состоянии кластера. Специальный контроллер внутри кластера непрерывно сравнивает текущее состояние с состоянием, описанным в Git, и автоматически приводит кластер в соответствие.</p><p>Два самых популярных инструмента: <strong>ArgoCD</strong> и <strong>Flux</strong>. Оба работают по pull-модели: агент внутри кластера сам \"тянет\" изменения из Git, в отличие от классического push-деплоя из CI-пайплайна.</p><p>Пример Application-манифеста ArgoCD:</p><pre><code>apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: myapp\n  namespace: argocd\nspec:\n  project: default\n  source:\n    repoURL: https://github.com/org/myapp-manifests.git\n    targetRevision: main\n    path: k8s/prod\n  destination:\n    server: https://kubernetes.default.svc\n    namespace: myapp\n  syncPolicy:\n    automated:\n      prune: true\n      selfHeal: true</code></pre><p>Параметр <code>selfHeal: true</code> означает, что если кто-то вручную изменит ресурс в кластере (например, через <code>kubectl edit</code>), ArgoCD автоматически откатит изменение к версии из Git.</p><ul><li>Преимущества: полный аудит через историю Git-коммитов, легкий rollback (<code>git revert</code>), декларативность.</li><li>Flux работает похожим образом, но чаще используется в связке с Helm-релизами и Kustomize через CRD <code>GitRepository</code>/<code>Kustomization</code>.</li></ul>",
+      "links": [
+        {
+          "title": "Argo CD Docs — официальная документация",
+          "url": "https://argo-cd.readthedocs.io/en/stable/"
+        },
+        {
+          "title": "Flux Docs — официальная документация",
+          "url": "https://fluxcd.io/flux/"
+        },
+        {
+          "title": "OpenGitOps — принципы GitOps",
+          "url": "https://opengitops.dev/"
+        }
+      ]
+    }
+  ],
+  "quiz": [
+    {
+      "q": "Чем Continuous Deployment отличается от Continuous Delivery?",
+      "options": [
+        "Deployment не включает тесты, Delivery включает",
+        "В Deployment релиз в production происходит автоматически, без ручного подтверждения",
+        "Delivery работает только с Docker, Deployment — с VM",
+        "Это синонимы, отличий нет"
+      ],
+      "answer": 1,
+      "explain": "Continuous Delivery готовит релиз к выпуску, но требует ручного подтверждения перед production. Continuous Deployment выполняет этот шаг полностью автоматически при прохождении всех проверок."
+    },
+    {
+      "q": "Какое событие обычно триггерит релизный пайплайн сборки версии в GitHub Actions?",
+      "options": [
+        "push тега (например, v1.2.3)",
+        "открытие issue",
+        "комментарий в discussions",
+        "fork репозитория"
+      ],
+      "answer": 0,
+      "explain": "Push тега (например, соответствующего semantic versioning v1.2.3) — стандартный триггер для релизных пайплайнов, отделяющий их от обычных CI-запусков на push в ветку."
+    },
+    {
+      "q": "Какой синтаксис Jenkinsfile рекомендуется для новых проектов и почему?",
+      "options": [
+        "Scripted, так как он проще",
+        "Declarative, так как он структурирован и проверяется линтером на этапе parse",
+        "Scripted, потому что declarative устарел",
+        "Оба синтаксиса одинаково не рекомендуются"
+      ],
+      "answer": 1,
+      "explain": "Declarative pipeline — современный стандарт: он строже структурирован, легче читается и проверяется встроенным линтером Jenkins до выполнения, что снижает количество ошибок."
+    },
+    {
+      "q": "В каком блоке declarative Jenkinsfile выполняется действие только при провале сборки?",
+      "options": [
+        "post { failure { ... } }",
+        "post { always { ... } }",
+        "stage { onFail { ... } }",
+        "pipeline { error { ... } }"
+      ],
+      "answer": 0,
+      "explain": "Блок post с секцией failure выполняется только тогда, когда пайплайн или stage завершился с ошибкой, например, для отправки уведомления."
+    },
+    {
+      "q": "В GitLab CI что определяет, какие файлы будут переданы из одного stage в другой?",
+      "options": [
+        "cache",
+        "artifacts",
+        "variables",
+        "rules"
+      ],
+      "answer": 1,
+      "explain": "artifacts указывают, какие файлы после выполнения job сохраняются и становятся доступны в последующих stages пайплайна. cache используется для ускорения повторных запусков (например, зависимостей), а не для передачи между stages."
+    },
+    {
+      "q": "Как в GitHub Actions правильно получить доступ к секретному токену внутри workflow?",
+      "options": [
+        "Записать токен прямо в yaml файл",
+        "Через контекст secrets.*, например ${{ secrets.API_TOKEN }}",
+        "Передать через аргумент командной строки в открытом виде",
+        "Секреты в GitHub Actions не поддерживаются"
+      ],
+      "answer": 1,
+      "explain": "GitHub Actions хранит секреты в настройках репозитория и предоставляет доступ к ним через контекст secrets, значения при этом маскируются в логах выполнения."
+    },
+    {
+      "q": "В чём преимущество использования HashiCorp Vault для секретов в CI/CD по сравнению со статичными encrypted variables?",
+      "options": [
+        "Vault работает быстрее",
+        "Vault поддерживает динамические секреты с коротким TTL, снижая риск компрометации",
+        "Vault не требует настройки",
+        "Encrypted variables вообще не подходят для CI/CD"
+      ],
+      "answer": 1,
+      "explain": "Vault может выдавать динамические, короткоживущие credentials, которые автоматически истекают, что существенно снижает риск при утечке по сравнению со статичными переменными, действующими бессрочно."
+    },
+    {
+      "q": "Почему kaniko или buildah предпочтительны для сборки Docker-образов в Kubernetes CI-раннерах по сравнению с обычным docker build?",
+      "options": [
+        "Они собирают образы быстрее в 10 раз",
+        "Они позволяют собирать образы без Docker daemon и без привилегированного root-доступа",
+        "Они поддерживают только Windows-контейнеры",
+        "docker build больше не поддерживается индустрией"
+      ],
+      "answer": 1,
+      "explain": "kaniko и buildah — rootless-инструменты, не требующие Docker daemon, что устраняет необходимость давать раннеру привилегированный доступ к Docker socket — существенный риск безопасности в Kubernetes."
+    },
+    {
+      "q": "В каком стандартном формате CI-системы обычно принимают отчёты о результатах тестов для унифицированного отображения?",
+      "options": [
+        "CSV",
+        "JUnit XML",
+        "YAML",
+        "Markdown"
+      ],
+      "answer": 1,
+      "explain": "JUnit XML — де-факто стандартный формат отчётов о тестах, который понимают почти все CI-платформы (Jenkins, GitLab CI, GitHub Actions), позволяя единообразно отображать статистику прохождения тестов."
+    },
+    {
+      "q": "Что делает параметр expire_in (GitLab CI) или retention-days (GitHub Actions) для артефактов?",
+      "options": [
+        "Ограничивает размер артефакта в мегабайтах",
+        "Определяет время хранения артефакта перед автоматическим удалением",
+        "Задаёт частоту пересборки артефакта",
+        "Шифрует артефакт на указанный срок"
+      ],
+      "answer": 1,
+      "explain": "Эти параметры задают retention policy — сколько времени артефакт хранится на сервере CI, после чего автоматически удаляется, что помогает контролировать расход дискового пространства."
+    },
+    {
+      "q": "Какой ключевой недостаток у blue-green deployment по сравнению с canary release?",
+      "options": [
+        "Blue-green требует двукратный запас ресурсов (два полных окружения одновременно)",
+        "Blue-green невозможно откатить быстро",
+        "Blue-green не поддерживается в Kubernetes",
+        "Blue-green нельзя использовать с базами данных"
+      ],
+      "answer": 0,
+      "explain": "Blue-green требует одновременного существования двух полноценных сред (текущей и новой), что удваивает потребление ресурсов на время деплоя, в отличие от canary, где новая версия сначала занимает лишь малую долю ресурсов."
+    },
+    {
+      "q": "В чём заключается принцип работы GitOps-контроллеров, таких как ArgoCD или Flux?",
+      "options": [
+        "CI-пайплайн сам выполняет kubectl apply в кластер (push-модель)",
+        "Агент внутри кластера сам подтягивает изменения из Git и приводит состояние кластера в соответствие (pull-модель)",
+        "Изменения применяются только вручную администратором кластера",
+        "GitOps работает исключительно с виртуальными машинами, не с Kubernetes"
+      ],
+      "answer": 1,
+      "explain": "GitOps-инструменты (ArgoCD, Flux) используют pull-модель: контроллер внутри кластера сам сравнивает состояние с Git-репозиторием и синхронизирует его, а не CI-пайплайн push-ем меняет кластер напрямую."
+    }
+  ]
 }

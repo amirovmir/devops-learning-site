@@ -1,126 +1,198 @@
 {
- "phase": "Phase 5 — SRE Practices",
- "section": "🛡️ Reliability Patterns",
- "topics": [
-  {
-   "title": "Circuit Breaker: паттерн, Hystrix/Resilience4j, реализация",
-   "level": "🟡 Middle",
-   "explanation": "<p>Circuit Breaker — паттерн отказоустойчивости, который предотвращает каскадные сбои при вызовах ненадёжного сервиса. Он работает как электрический автомат: следит за количеством ошибок и при превышении порога «размыкает цепь», прекращая реальные вызовы и сразу возвращая ошибку или fallback-ответ.</p><p>У Circuit Breaker три состояния:</p><ul><li><strong>Closed</strong> — запросы идут как обычно, ошибки считаются.</li><li><strong>Open</strong> — вызовы блокируются немедленно, без обращения к сервису.</li><li><strong>Half-Open</strong> — после таймаута пропускается пробный запрос, чтобы проверить восстановление.</li></ul><p>Классическая реализация — библиотека <code>Hystrix</code> от Netflix (сейчас в режиме maintenance), её преемник — <code>Resilience4j</code> для Java/Spring. Пример конфигурации Resilience4j:</p><pre><code>resilience4j.circuitbreaker:\n  instances:\n    paymentService:\n      failureRateThreshold: 50\n      waitDurationInOpenState: 10s\n      slidingWindowSize: 20</code></pre><p>Здесь при доле ошибок выше 50% из последних 20 вызовов breaker переходит в Open на 10 секунд. Это защищает вызывающий сервис от долгих таймаутов и деградации всей цепочки при отказе одной зависимости.</p><table><tr><th>Состояние</th><th>Поведение</th></tr><tr><td>Closed</td><td>Обычные вызовы</td></tr><tr><td>Open</td><td>Мгновенный fail/fallback</td></tr><tr><td>Half-Open</td><td>Пробные запросы</td></tr></table>"
-  },
-  {
-   "title": "Retry + exponential backoff + jitter: правильная реализация",
-   "level": "🟡 Middle",
-   "explanation": "<p>Повторные попытки (retry) при временных сбоях — базовый приём повышения надёжности, но наивный retry без задержки может усилить проблему, создав «thundering herd» — волну одновременных повторных запросов, которая добивает и без того перегруженный сервис.</p><p><strong>Exponential backoff</strong> увеличивает интервал между попытками экспоненциально: 1с, 2с, 4с, 8с и так далее, обычно с ограничением максимума (например, 30с) и числа попыток.</p><p><strong>Jitter</strong> — случайное отклонение добавляемое к задержке, чтобы клиенты не синхронизировались и не били по сервису одновременно волнами.</p><pre><code>def retry_with_backoff(fn, max_attempts=5, base=1):\n    for attempt in range(max_attempts):\n        try:\n            return fn()\n        except TransientError:\n            delay = base * (2 ** attempt)\n            jitter = random.uniform(0, delay * 0.5)\n            time.sleep(delay + jitter)\n    raise MaxRetriesExceeded()</code></pre><p>Важные правила:</p><ul><li>Повторять только идемпотентные операции или использовать idempotency key.</li><li>Не ретраить 4xx-ошибки клиента (кроме 429).</li><li>Ограничивать общее время и число попыток.</li><li>Комбинировать с Circuit Breaker — не ретраить, если breaker открыт.</li></ul><p>AWS SDK, gRPC и большинство HTTP-клиентов уже поддерживают backoff+jitter «из коробки», но важно понимать, что настроено по умолчанию.</p>"
-  },
-  {
-   "title": "Bulkhead: изоляция ресурсов, thread pools, connection pools",
-   "level": "🟡 Middle",
-   "explanation": "<p>Паттерн Bulkhead («переборка») назван по аналогии с отсеками корабля: если один отсек затопило, судно не тонет целиком, потому что переборки изолируют повреждение. В софте это означает разделение ресурсов (пулы потоков, соединений, семафоры) между разными зависимостями, чтобы отказ одной не исчерпал ресурсы всего приложения.</p><p>Без Bulkhead: один медленный внешний API занимает все потоки в общем пуле, и приложение перестаёт отвечать даже на запросы, не связанные с этим API.</p><p>С Bulkhead: у каждой зависимости — свой ограниченный пул.</p><pre><code>resilience4j.bulkhead:\n  instances:\n    inventoryService:\n      maxConcurrentCalls: 10\n    paymentService:\n      maxConcurrentCalls: 5</code></pre><p>Два основных вида реализации:</p><ul><li><strong>Thread pool isolation</strong> — отдельный пул потоков на зависимость (полная изоляция, но выше overhead).</li><li><strong>Semaphore isolation</strong> — ограничение числа одновременных вызовов без отдельных потоков (легче, но без тайм-аутов на уровне ОС).</li></ul><p>В Kubernetes аналогом на уровне инфраструктуры служат <strong>resource requests/limits</strong> и отдельные connection pool у БД-клиентов на каждый сервис, а не общий shared pool.</p>"
-  },
-  {
-   "title": "Graceful degradation и graceful shutdown: SIGTERM handling, preStop hook",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>Graceful degradation</strong> — способность системы продолжать работать в ограниченном режиме при частичном отказе, вместо полного падения. Например, если сервис рекомендаций недоступен, интернет-магазин показывает каталог без персональных рекомендаций, а не страницу ошибки.</p><p><strong>Graceful shutdown</strong> — корректное завершение процесса без потери запросов «в полёте». В Kubernetes при удалении Pod происходит следующая последовательность:</p><ul><li>Pod помечается как Terminating, убирается из Endpoints Service.</li><li>Выполняется <code>preStop</code> hook (если задан) — например, sleep для завершения in-flight запросов.</li><li>Контейнеру отправляется <code>SIGTERM</code> — приложение должно перестать принимать новые соединения и завершить текущие.</li><li>Если процесс не завершился за <code>terminationGracePeriodSeconds</code> (по умолчанию 30с), отправляется <code>SIGKILL</code>.</li></ul><pre><code>lifecycle:\n  preStop:\n    exec:\n      command: [\"sh\", \"-c\", \"sleep 5\"]\nterminationGracePeriodSeconds: 30</code></pre><p>Пример обработки SIGTERM в Node.js:</p><pre><code>process.on('SIGTERM', () => {\n  server.close(() => process.exit(0));\n});</code></pre><p>Без этого клиенты получают ECONNRESET во время деплоя — типичная причина «загадочных» кратких всплесков ошибок при rolling update.</p>"
-  },
-  {
-   "title": "Disaster Recovery: RTO/RPO цели, backup strategy, drill тесты",
-   "level": "🔴 Senior",
-   "explanation": "<p>Disaster Recovery (DR) — комплекс мер восстановления системы после катастрофического сбоя (отказ дата-центра, крупная авария, атака). Два ключевых метрики:</p><ul><li><strong>RTO (Recovery Time Objective)</strong> — максимально допустимое время простоя до восстановления сервиса.</li><li><strong>RPO (Recovery Point Objective)</strong> — максимально допустимый объём потери данных, измеряемый временем (например, «не более 15 минут данных»).</li></ul><p>Стратегии backup зависят от требуемых RTO/RPO:</p><table><tr><th>Стратегия</th><th>RTO</th><th>RPO</th><th>Стоимость</th></tr><tr><td>Backup & Restore</td><td>часы</td><td>часы</td><td>низкая</td></tr><tr><td>Pilot Light</td><td>10-30 мин</td><td>минуты</td><td>средняя</td></tr><tr><td>Warm Standby</td><td>минуты</td><td>секунды-минуты</td><td>высокая</td></tr><tr><td>Multi-site Active-Active</td><td>~0</td><td>~0</td><td>очень высокая</td></tr></table><p>Пример: для БД PostgreSQL RPO обеспечивается через WAL-архивирование и point-in-time recovery, а RTO — через готовый прогретый standby с автоматическим failover.</p><p>Критически важны <strong>drill-тесты</strong> — регулярные плановые учения восстановления (например, раз в квартал реально поднимают систему из backup в изолированной среде), потому что backup, который никогда не восстанавливали, нельзя считать рабочим.</p>"
-  },
-  {
-   "title": "Multi-region: active-active vs active-passive, data replication lag",
-   "level": "🔴 Senior",
-   "explanation": "<p>Multi-region архитектура распределяет инфраструктуру между географически разнесёнными регионами для отказоустойчивости и снижения latency пользователей.</p><p><strong>Active-Passive</strong>: трафик обслуживается одним основным (active) регионом, второй (passive/standby) находится в резерве и активируется при отказе основного (failover). Проще в реализации, дешевле, но при аварии есть простой на время failover, а RPO зависит от задержки репликации.</p><p><strong>Active-Active</strong>: оба (или больше) региона одновременно обслуживают трафик (например, через DNS latency-routing или geo-routing). Даёт нулевой RTO при отказе одного региона и лучший latency для пользователей, но требует решения проблем консистентности данных при записи в нескольких местах.</p><p>Ключевая сложность — <strong>replication lag</strong>: время, за которое изменение в одном регионе долетает до другого. Если lag большой, при чтении из «отстающего» региона пользователь может увидеть устаревшие данные (stale read), а при одновременной записи в двух регионах возникают конфликты (write-write conflicts), которые нужно разрешать через:</p><ul><li>Last-write-wins с версионированием (vector clocks, timestamps).</li><li>CRDT (Conflict-free Replicated Data Types).</li><li>Ограничение записи одним «домашним» регионом на пользователя (data locality / sharding по региону).</li></ul><pre><code># Пример: Route53 latency-based routing\n# направляет пользователя в регион с наименьшей задержкой,\n# при недоступности региона — health check убирает его из ротации</code></pre><p>Мониторинг replication lag (например, метрика <code>pg_stat_replication</code> в PostgreSQL) обязателен — рост lag сигнализирует о риске потери данных при failover.</p>"
-  }
- ],
- "quiz": [
-  {
-   "q": "В каком состоянии Circuit Breaker блокирует вызовы к сервису без реального обращения к нему?",
-   "options": [
-    "Half-Open",
-    "Closed",
-    "Open",
-    "Idle"
-   ],
-   "answer": 2,
-   "explain": "В состоянии Open breaker сразу возвращает ошибку/fallback без вызова реального сервиса, защищая систему от лишней нагрузки на отказавшую зависимость."
-  },
-  {
-   "q": "Зачем в exponential backoff добавляют jitter?",
-   "options": [
-    "Чтобы увеличить нагрузку на сервер для тестирования",
-    "Чтобы уменьшить общее число попыток",
-    "Чтобы избежать синхронных волн повторных запросов от множества клиентов",
-    "Чтобы гарантировать успех запроса"
-   ],
-   "answer": 2,
-   "explain": "Jitter добавляет случайность к задержке, разбивая синхронизированные волны retry от разных клиентов и снижая пиковую нагрузку на восстанавливающийся сервис."
-  },
-  {
-   "q": "Что даёт паттерн Bulkhead при отказе одной внешней зависимости?",
-   "options": [
-    "Автоматическое исправление кода зависимости",
-    "Мгновенное восстановление зависимости",
-    "Отключение всего приложения для безопасности",
-    "Изоляцию ресурсов (пулов потоков/соединений), чтобы отказ не исчерпал ресурсы всего приложения"
-   ],
-   "answer": 3,
-   "explain": "Bulkhead изолирует ресурсы (thread pool, connection pool) по зависимостям, так что перегрузка одной не лишает ресурсов остальные части системы."
-  },
-  {
-   "q": "Какой сигнал Kubernetes отправляет контейнеру перед завершением Pod, чтобы дать возможность корректно завершить работу?",
-   "options": [
-    "SIGKILL",
-    "SIGTERM",
-    "SIGSTOP",
-    "SIGHUP"
-   ],
-   "answer": 1,
-   "explain": "Kubernetes сначала отправляет SIGTERM, давая приложению время завершить текущие запросы, и только после terminationGracePeriodSeconds посылает SIGKILL."
-  },
-  {
-   "q": "Что делает preStop hook в Kubernetes?",
-   "options": [
-    "Запускает health check перед стартом Pod",
-    "Автоматически масштабирует Deployment",
-    "Выполняется перед отправкой SIGTERM, например для паузы перед реальным завершением",
-    "Создаёт backup данных перед деплоем"
-   ],
-   "answer": 2,
-   "explain": "preStop hook выполняется до отправки SIGTERM, что часто используется для небольшой задержки (sleep), пока Pod убирается из Endpoints Service."
-  },
-  {
-   "q": "Что означает метрика RPO (Recovery Point Objective) в Disaster Recovery?",
-   "options": [
-    "Максимально допустимый объём потери данных, измеряемый временем",
-    "Максимально допустимое время простоя системы",
-    "Количество регионов для репликации",
-    "Стоимость восстановления инфраструктуры"
-   ],
-   "answer": 0,
-   "explain": "RPO определяет, сколько данных (в единицах времени) организация готова потерять при аварии — например, не более 15 минут изменений."
-  },
-  {
-   "q": "Какая DR-стратегия обеспечивает наименьший RTO, но требует наибольших затрат?",
-   "options": [
-    "Backup & Restore",
-    "Pilot Light",
-    "Warm Standby",
-    "Multi-site Active-Active"
-   ],
-   "answer": 3,
-   "explain": "Multi-site Active-Active держит несколько регионов постоянно активными и обслуживающими трафик, обеспечивая почти нулевой RTO/RPO, но при значительно более высокой стоимости."
-  },
-  {
-   "q": "Что такое replication lag в контексте multi-region архитектуры?",
-   "options": [
-    "Время задержки между отправкой и получением HTTP-запроса",
-    "Время, за которое изменение данных из одного региона распространяется на другой регион",
-    "Время простоя при деплое новой версии",
-    "Задержка DNS-резолвинга между регионами"
-   ],
-   "answer": 1,
-   "explain": "Replication lag — задержка репликации данных между регионами; большой lag увеличивает риск stale reads и конфликтов записи (write-write conflicts) в active-active схемах."
-  }
- ]
+  "phase": "Phase 5 — SRE Practices",
+  "section": "🛡️ Reliability Patterns",
+  "topics": [
+    {
+      "title": "Circuit Breaker: паттерн, Hystrix/Resilience4j, реализация",
+      "level": "🟡 Middle",
+      "explanation": "<p>Circuit Breaker — паттерн отказоустойчивости, который предотвращает каскадные сбои при вызовах ненадёжного сервиса. Он работает как электрический автомат: следит за количеством ошибок и при превышении порога «размыкает цепь», прекращая реальные вызовы и сразу возвращая ошибку или fallback-ответ.</p><p>У Circuit Breaker три состояния:</p><ul><li><strong>Closed</strong> — запросы идут как обычно, ошибки считаются.</li><li><strong>Open</strong> — вызовы блокируются немедленно, без обращения к сервису.</li><li><strong>Half-Open</strong> — после таймаута пропускается пробный запрос, чтобы проверить восстановление.</li></ul><p>Классическая реализация — библиотека <code>Hystrix</code> от Netflix (сейчас в режиме maintenance), её преемник — <code>Resilience4j</code> для Java/Spring. Пример конфигурации Resilience4j:</p><pre><code>resilience4j.circuitbreaker:\n  instances:\n    paymentService:\n      failureRateThreshold: 50\n      waitDurationInOpenState: 10s\n      slidingWindowSize: 20</code></pre><p>Здесь при доле ошибок выше 50% из последних 20 вызовов breaker переходит в Open на 10 секунд. Это защищает вызывающий сервис от долгих таймаутов и деградации всей цепочки при отказе одной зависимости.</p><table><tr><th>Состояние</th><th>Поведение</th></tr><tr><td>Closed</td><td>Обычные вызовы</td></tr><tr><td>Open</td><td>Мгновенный fail/fallback</td></tr><tr><td>Half-Open</td><td>Пробные запросы</td></tr></table>",
+      "links": [
+        {
+          "title": "Azure Architecture Center: Circuit Breaker Pattern — каноническое описание паттерна",
+          "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker"
+        },
+        {
+          "title": "Resilience4j Docs: CircuitBreaker — состояния и конфигурация на Java",
+          "url": "https://resilience4j.readme.io/docs/circuitbreaker"
+        },
+        {
+          "title": "Martin Fowler: CircuitBreaker — оригинальная статья о происхождении паттерна",
+          "url": "https://martinfowler.com/bliki/CircuitBreaker.html"
+        }
+      ]
+    },
+    {
+      "title": "Retry + exponential backoff + jitter: правильная реализация",
+      "level": "🟡 Middle",
+      "explanation": "<p>Повторные попытки (retry) при временных сбоях — базовый приём повышения надёжности, но наивный retry без задержки может усилить проблему, создав «thundering herd» — волну одновременных повторных запросов, которая добивает и без того перегруженный сервис.</p><p><strong>Exponential backoff</strong> увеличивает интервал между попытками экспоненциально: 1с, 2с, 4с, 8с и так далее, обычно с ограничением максимума (например, 30с) и числа попыток.</p><p><strong>Jitter</strong> — случайное отклонение добавляемое к задержке, чтобы клиенты не синхронизировались и не били по сервису одновременно волнами.</p><pre><code>def retry_with_backoff(fn, max_attempts=5, base=1):\n    for attempt in range(max_attempts):\n        try:\n            return fn()\n        except TransientError:\n            delay = base * (2 ** attempt)\n            jitter = random.uniform(0, delay * 0.5)\n            time.sleep(delay + jitter)\n    raise MaxRetriesExceeded()</code></pre><p>Важные правила:</p><ul><li>Повторять только идемпотентные операции или использовать idempotency key.</li><li>Не ретраить 4xx-ошибки клиента (кроме 429).</li><li>Ограничивать общее время и число попыток.</li><li>Комбинировать с Circuit Breaker — не ретраить, если breaker открыт.</li></ul><p>AWS SDK, gRPC и большинство HTTP-клиентов уже поддерживают backoff+jitter «из коробки», но важно понимать, что настроено по умолчанию.</p>",
+      "links": [
+        {
+          "title": "AWS Builders' Library: Timeouts, retries, and backoff with jitter — эталонная статья Marc Brooker",
+          "url": "https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/"
+        },
+        {
+          "title": "AWS Architecture Blog: Exponential Backoff And Jitter — сравнение стратегий backoff",
+          "url": "https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/"
+        },
+        {
+          "title": "AWS Prescriptive Guidance: Retry with backoff pattern — практическая реализация",
+          "url": "https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/retry-backoff.html"
+        }
+      ]
+    },
+    {
+      "title": "Bulkhead: изоляция ресурсов, thread pools, connection pools",
+      "level": "🟡 Middle",
+      "explanation": "<p>Паттерн Bulkhead («переборка») назван по аналогии с отсеками корабля: если один отсек затопило, судно не тонет целиком, потому что переборки изолируют повреждение. В софте это означает разделение ресурсов (пулы потоков, соединений, семафоры) между разными зависимостями, чтобы отказ одной не исчерпал ресурсы всего приложения.</p><p>Без Bulkhead: один медленный внешний API занимает все потоки в общем пуле, и приложение перестаёт отвечать даже на запросы, не связанные с этим API.</p><p>С Bulkhead: у каждой зависимости — свой ограниченный пул.</p><pre><code>resilience4j.bulkhead:\n  instances:\n    inventoryService:\n      maxConcurrentCalls: 10\n    paymentService:\n      maxConcurrentCalls: 5</code></pre><p>Два основных вида реализации:</p><ul><li><strong>Thread pool isolation</strong> — отдельный пул потоков на зависимость (полная изоляция, но выше overhead).</li><li><strong>Semaphore isolation</strong> — ограничение числа одновременных вызовов без отдельных потоков (легче, но без тайм-аутов на уровне ОС).</li></ul><p>В Kubernetes аналогом на уровне инфраструктуры служат <strong>resource requests/limits</strong> и отдельные connection pool у БД-клиентов на каждый сервис, а не общий shared pool.</p>",
+      "links": [
+        {
+          "title": "Azure Architecture Center: Bulkhead Pattern — каноническое описание изоляции ресурсов",
+          "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/bulkhead"
+        },
+        {
+          "title": "Resilience4j Docs: Bulkhead — Semaphore vs Fixed Thread Pool изоляция",
+          "url": "https://resilience4j.readme.io/docs/bulkhead"
+        }
+      ]
+    },
+    {
+      "title": "Graceful degradation и graceful shutdown: SIGTERM handling, preStop hook",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>Graceful degradation</strong> — способность системы продолжать работать в ограниченном режиме при частичном отказе, вместо полного падения. Например, если сервис рекомендаций недоступен, интернет-магазин показывает каталог без персональных рекомендаций, а не страницу ошибки.</p><p><strong>Graceful shutdown</strong> — корректное завершение процесса без потери запросов «в полёте». В Kubernetes при удалении Pod происходит следующая последовательность:</p><ul><li>Pod помечается как Terminating, убирается из Endpoints Service.</li><li>Выполняется <code>preStop</code> hook (если задан) — например, sleep для завершения in-flight запросов.</li><li>Контейнеру отправляется <code>SIGTERM</code> — приложение должно перестать принимать новые соединения и завершить текущие.</li><li>Если процесс не завершился за <code>terminationGracePeriodSeconds</code> (по умолчанию 30с), отправляется <code>SIGKILL</code>.</li></ul><pre><code>lifecycle:\n  preStop:\n    exec:\n      command: [\"sh\", \"-c\", \"sleep 5\"]\nterminationGracePeriodSeconds: 30</code></pre><p>Пример обработки SIGTERM в Node.js:</p><pre><code>process.on('SIGTERM', () => {\n  server.close(() => process.exit(0));\n});</code></pre><p>Без этого клиенты получают ECONNRESET во время деплоя — типичная причина «загадочных» кратких всплесков ошибок при rolling update.</p>",
+      "links": [
+        {
+          "title": "Kubernetes Docs: Pod Lifecycle — последовательность Terminating/preStop/SIGTERM/SIGKILL",
+          "url": "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+        },
+        {
+          "title": "Kubernetes Docs: Container Lifecycle Hooks — настройка preStop hook",
+          "url": "https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/"
+        },
+        {
+          "title": "Google Cloud Blog: Kubernetes best practices — terminating with grace",
+          "url": "https://cloud.google.com/blog/products/containers-kubernetes/kubernetes-best-practices-terminating-with-grace"
+        }
+      ]
+    },
+    {
+      "title": "Disaster Recovery: RTO/RPO цели, backup strategy, drill тесты",
+      "level": "🔴 Senior",
+      "explanation": "<p>Disaster Recovery (DR) — комплекс мер восстановления системы после катастрофического сбоя (отказ дата-центра, крупная авария, атака). Два ключевых метрики:</p><ul><li><strong>RTO (Recovery Time Objective)</strong> — максимально допустимое время простоя до восстановления сервиса.</li><li><strong>RPO (Recovery Point Objective)</strong> — максимально допустимый объём потери данных, измеряемый временем (например, «не более 15 минут данных»).</li></ul><p>Стратегии backup зависят от требуемых RTO/RPO:</p><table><tr><th>Стратегия</th><th>RTO</th><th>RPO</th><th>Стоимость</th></tr><tr><td>Backup & Restore</td><td>часы</td><td>часы</td><td>низкая</td></tr><tr><td>Pilot Light</td><td>10-30 мин</td><td>минуты</td><td>средняя</td></tr><tr><td>Warm Standby</td><td>минуты</td><td>секунды-минуты</td><td>высокая</td></tr><tr><td>Multi-site Active-Active</td><td>~0</td><td>~0</td><td>очень высокая</td></tr></table><p>Пример: для БД PostgreSQL RPO обеспечивается через WAL-архивирование и point-in-time recovery, а RTO — через готовый прогретый standby с автоматическим failover.</p><p>Критически важны <strong>drill-тесты</strong> — регулярные плановые учения восстановления (например, раз в квартал реально поднимают систему из backup в изолированной среде), потому что backup, который никогда не восстанавливали, нельзя считать рабочим.</p>",
+      "links": [
+        {
+          "title": "AWS Whitepaper: Disaster Recovery Options in the Cloud — четыре стратегии DR и RTO/RPO",
+          "url": "https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html"
+        },
+        {
+          "title": "AWS Architecture Blog: DR Architecture on AWS, Part I — стратегии восстановления в облаке",
+          "url": "https://aws.amazon.com/blogs/architecture/disaster-recovery-dr-architecture-on-aws-part-i-strategies-for-recovery-in-the-cloud/"
+        }
+      ]
+    },
+    {
+      "title": "Multi-region: active-active vs active-passive, data replication lag",
+      "level": "🔴 Senior",
+      "explanation": "<p>Multi-region архитектура распределяет инфраструктуру между географически разнесёнными регионами для отказоустойчивости и снижения latency пользователей.</p><p><strong>Active-Passive</strong>: трафик обслуживается одним основным (active) регионом, второй (passive/standby) находится в резерве и активируется при отказе основного (failover). Проще в реализации, дешевле, но при аварии есть простой на время failover, а RPO зависит от задержки репликации.</p><p><strong>Active-Active</strong>: оба (или больше) региона одновременно обслуживают трафик (например, через DNS latency-routing или geo-routing). Даёт нулевой RTO при отказе одного региона и лучший latency для пользователей, но требует решения проблем консистентности данных при записи в нескольких местах.</p><p>Ключевая сложность — <strong>replication lag</strong>: время, за которое изменение в одном регионе долетает до другого. Если lag большой, при чтении из «отстающего» региона пользователь может увидеть устаревшие данные (stale read), а при одновременной записи в двух регионах возникают конфликты (write-write conflicts), которые нужно разрешать через:</p><ul><li>Last-write-wins с версионированием (vector clocks, timestamps).</li><li>CRDT (Conflict-free Replicated Data Types).</li><li>Ограничение записи одним «домашним» регионом на пользователя (data locality / sharding по региону).</li></ul><pre><code># Пример: Route53 latency-based routing\n# направляет пользователя в регион с наименьшей задержкой,\n# при недоступности региона — health check убирает его из ротации</code></pre><p>Мониторинг replication lag (например, метрика <code>pg_stat_replication</code> в PostgreSQL) обязателен — рост lag сигнализирует о риске потери данных при failover.</p>",
+      "links": [
+        {
+          "title": "Azure Architecture Center: Cloud Design Patterns — паттерны Geode/Deployment Stamps для multi-region",
+          "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/"
+        },
+        {
+          "title": "AWS Whitepaper: Disaster Recovery Options in the Cloud — Multi-Site Active/Active и репликация",
+          "url": "https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html"
+        }
+      ]
+    }
+  ],
+  "quiz": [
+    {
+      "q": "В каком состоянии Circuit Breaker блокирует вызовы к сервису без реального обращения к нему?",
+      "options": [
+        "Half-Open",
+        "Closed",
+        "Open",
+        "Idle"
+      ],
+      "answer": 2,
+      "explain": "В состоянии Open breaker сразу возвращает ошибку/fallback без вызова реального сервиса, защищая систему от лишней нагрузки на отказавшую зависимость."
+    },
+    {
+      "q": "Зачем в exponential backoff добавляют jitter?",
+      "options": [
+        "Чтобы увеличить нагрузку на сервер для тестирования",
+        "Чтобы уменьшить общее число попыток",
+        "Чтобы избежать синхронных волн повторных запросов от множества клиентов",
+        "Чтобы гарантировать успех запроса"
+      ],
+      "answer": 2,
+      "explain": "Jitter добавляет случайность к задержке, разбивая синхронизированные волны retry от разных клиентов и снижая пиковую нагрузку на восстанавливающийся сервис."
+    },
+    {
+      "q": "Что даёт паттерн Bulkhead при отказе одной внешней зависимости?",
+      "options": [
+        "Автоматическое исправление кода зависимости",
+        "Мгновенное восстановление зависимости",
+        "Отключение всего приложения для безопасности",
+        "Изоляцию ресурсов (пулов потоков/соединений), чтобы отказ не исчерпал ресурсы всего приложения"
+      ],
+      "answer": 3,
+      "explain": "Bulkhead изолирует ресурсы (thread pool, connection pool) по зависимостям, так что перегрузка одной не лишает ресурсов остальные части системы."
+    },
+    {
+      "q": "Какой сигнал Kubernetes отправляет контейнеру перед завершением Pod, чтобы дать возможность корректно завершить работу?",
+      "options": [
+        "SIGKILL",
+        "SIGTERM",
+        "SIGSTOP",
+        "SIGHUP"
+      ],
+      "answer": 1,
+      "explain": "Kubernetes сначала отправляет SIGTERM, давая приложению время завершить текущие запросы, и только после terminationGracePeriodSeconds посылает SIGKILL."
+    },
+    {
+      "q": "Что делает preStop hook в Kubernetes?",
+      "options": [
+        "Запускает health check перед стартом Pod",
+        "Автоматически масштабирует Deployment",
+        "Выполняется перед отправкой SIGTERM, например для паузы перед реальным завершением",
+        "Создаёт backup данных перед деплоем"
+      ],
+      "answer": 2,
+      "explain": "preStop hook выполняется до отправки SIGTERM, что часто используется для небольшой задержки (sleep), пока Pod убирается из Endpoints Service."
+    },
+    {
+      "q": "Что означает метрика RPO (Recovery Point Objective) в Disaster Recovery?",
+      "options": [
+        "Максимально допустимый объём потери данных, измеряемый временем",
+        "Максимально допустимое время простоя системы",
+        "Количество регионов для репликации",
+        "Стоимость восстановления инфраструктуры"
+      ],
+      "answer": 0,
+      "explain": "RPO определяет, сколько данных (в единицах времени) организация готова потерять при аварии — например, не более 15 минут изменений."
+    },
+    {
+      "q": "Какая DR-стратегия обеспечивает наименьший RTO, но требует наибольших затрат?",
+      "options": [
+        "Backup & Restore",
+        "Pilot Light",
+        "Warm Standby",
+        "Multi-site Active-Active"
+      ],
+      "answer": 3,
+      "explain": "Multi-site Active-Active держит несколько регионов постоянно активными и обслуживающими трафик, обеспечивая почти нулевой RTO/RPO, но при значительно более высокой стоимости."
+    },
+    {
+      "q": "Что такое replication lag в контексте multi-region архитектуры?",
+      "options": [
+        "Время задержки между отправкой и получением HTTP-запроса",
+        "Время, за которое изменение данных из одного региона распространяется на другой регион",
+        "Время простоя при деплое новой версии",
+        "Задержка DNS-резолвинга между регионами"
+      ],
+      "answer": 1,
+      "explain": "Replication lag — задержка репликации данных между регионами; большой lag увеличивает риск stale reads и конфликтов записи (write-write conflicts) в active-active схемах."
+    }
+  ]
 }

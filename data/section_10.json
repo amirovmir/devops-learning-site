@@ -1,205 +1,383 @@
 {
- "phase": "Phase 4 — Cloud + Monitoring + Security",
- "section": "📊 Prometheus + Grafana",
- "topics": [
-  {
-   "title": "Три столпа observability: metrics, logs, traces — роль каждого",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>Observability</strong> строится на трёх типах телеметрии, каждый отвечает на свой вопрос.</p><ul><li><strong>Metrics</strong> — числовые ряды во времени (CPU, RPS, latency). Дешёвые в хранении, отлично агрегируются, отвечают на вопрос «что происходит и как сильно».</li><li><strong>Logs</strong> — дискретные события с контекстом. Отвечают на вопрос «что именно произошло» на конкретном запросе или в конкретный момент.</li><li><strong>Traces</strong> — цепочка вызовов между сервисами для одного запроса. Отвечают на вопрос «где именно в distributed-системе возникла задержка или ошибка».</li></ul><p>Типичный workflow расследования инцидента: метрика в Grafana показала аномалию (например, рост <code>error_rate</code>) → переходим в логи за этот период, чтобы найти конкретные ошибки → если система распределённая, смотрим trace конкретного медленного запроса, чтобы понять, какой сервис в цепочке «тормозит».</p><p>В стеке Prometheus+Grafana это выглядит так: Prometheus собирает и хранит метрики, Loki/ELK — логи, Jaeger/Tempo — трейсы, а Grafana объединяет всё в единый UI с возможностью «прыгать» между ними по общим меткам (например, <code>trace_id</code>).</p><table><tr><th>Тип</th><th>Пример инструмента</th><th>Вопрос</th></tr><tr><td>Metrics</td><td>Prometheus</td><td>Что и насколько сильно?</td></tr><tr><td>Logs</td><td>Loki/ELK</td><td>Что конкретно произошло?</td></tr><tr><td>Traces</td><td>Jaeger/Tempo</td><td>Где узкое место?</td></tr></table>"
-  },
-  {
-   "title": "Типы метрик Prometheus: Counter, Gauge, Histogram, Summary",
-   "level": "🟢 Junior",
-   "explanation": "<p>Prometheus определяет 4 базовых типа метрик, каждый со своей семантикой и правилами обработки в PromQL.</p><ul><li><strong>Counter</strong> — монотонно возрастающее значение (никогда не уменьшается, кроме сброса при перезапуске). Используется для количества запросов, ошибок, байт. Пример: <code>http_requests_total</code>. Работать с ним напрямую бессмысленно — нужен <code>rate()</code> или <code>increase()</code>.</li><li><strong>Gauge</strong> — значение, которое может как расти, так и падать. Используется для текущей загрузки, температуры, количества активных соединений. Пример: <code>node_memory_MemAvailable_bytes</code>.</li><li><strong>Histogram</strong> — распределяет наблюдения по бакетам (buckets) и считает их сумму и количество. Позволяет вычислять перцентили на стороне сервера запроса через <code>histogram_quantile()</code>. Пример: <code>http_request_duration_seconds_bucket</code>.</li><li><strong>Summary</strong> — похож на Histogram, но перцентили вычисляются на клиенте (в приложении) и не агрегируются между инстансами. Проще для простых случаев, но менее гибкий.</li></ul><p>Пример объявления Histogram в клиентской библиотеке (Python):</p><pre><code>from prometheus_client import Histogram\nREQUEST_LATENCY = Histogram('http_request_duration_seconds', 'Latency', buckets=[0.1, 0.5, 1, 2, 5])</code></pre><p>Запрос перцентиля через PromQL:</p><pre><code>histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))</code></pre><table><tr><th>Тип</th><th>Направление</th><th>Пример PromQL</th></tr><tr><td>Counter</td><td>только рост</td><td><code>rate(errors_total[5m])</code></td></tr><tr><td>Gauge</td><td>вверх/вниз</td><td><code>node_memory_MemFree_bytes</code></td></tr><tr><td>Histogram</td><td>бакеты</td><td><code>histogram_quantile(0.99, ...)</code></td></tr><tr><td>Summary</td><td>клиентские квантили</td><td><code>my_summary{quantile='0.9'}</code></td></tr></table>"
-  },
-  {
-   "title": "Prometheus config: scrape_configs, targets, scrape_interval",
-   "level": "🟢 Junior",
-   "explanation": "<p>Конфигурация Prometheus описывается в <code>prometheus.yml</code>. Ключевой раздел — <strong>scrape_configs</strong>, определяющий, откуда и как часто собирать метрики.</p><pre><code>global:\n  scrape_interval: 15s\n  evaluation_interval: 15s\n\nscrape_configs:\n  - job_name: 'node_exporter'\n    scrape_interval: 10s\n    static_configs:\n      - targets: ['10.0.0.1:9100', '10.0.0.2:9100']\n        labels:\n          env: 'production'\n\n  - job_name: 'app'\n    metrics_path: /metrics\n    static_configs:\n      - targets: ['app1:8080', 'app2:8080']</code></pre><ul><li><strong>job_name</strong> — логическое имя группы целей, попадает в метку <code>job</code>.</li><li><strong>scrape_interval</strong> — как часто Prometheus опрашивает цель (по умолчанию из <code>global</code>, можно переопределить на job).</li><li><strong>static_configs.targets</strong> — список <code>host:port</code>, где приложение отдаёт метрики на <code>/metrics</code> (путь можно менять через <code>metrics_path</code>).</li><li><strong>labels</strong> — дополнительные метки, добавляемые ко всем метрикам с этих targets.</li></ul><p>Каждый target должен отдавать метрики в текстовом формате Prometheus exposition format по HTTP. Проверить доступность и статус целей можно в веб-интерфейсе Prometheus на странице <strong>Status → Targets</strong>, где видно состояние <code>UP</code>/<code>DOWN</code> и время последнего успешного скрейпа.</p><p>Для динамических окружений вместо <code>static_configs</code> используют service discovery (Kubernetes, EC2 и т.д.), о котором отдельная тема.</p>"
-  },
-  {
-   "title": "PromQL базовый: selectors, rate(), sum(), avg(), by(label)",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>PromQL</strong> — язык запросов Prometheus. Базовые элементы:</p><ul><li><strong>Instant vector selector</strong> — выбирает текущее значение метрики: <code>http_requests_total{job='app', status='500'}</code>.</li><li><strong>Range vector selector</strong> — выбирает диапазон значений за период: <code>http_requests_total[5m]</code> — используется как вход для функций типа <code>rate()</code>.</li><li><strong><code>rate()</code></strong> — средняя скорость роста counter в секунду за интервал, корректно обрабатывает сбросы (перезапуски). Обязателен для counters: <code>rate(http_requests_total[5m])</code>.</li><li><strong><code>sum()</code></strong> — агрегирует значения по всем меткам в одно число, либо по подмножеству через <code>by(...)</code>.</li><li><strong><code>avg()</code></strong> — среднее значение, аналогично с <code>by()</code>.</li></ul><p>Примеры реальных запросов:</p><pre><code># Общий RPS по всем инстансам job \"app\"\nsum(rate(http_requests_total{job='app'}[5m]))\n\n# RPS в разрезе по коду ответа\nsum(rate(http_requests_total[5m])) by (status)\n\n# Средняя загрузка CPU по узлам\navg(rate(node_cpu_seconds_total{mode!='idle'}[5m])) by (instance)\n\n# Доля ошибок 5xx\nsum(rate(http_requests_total{status=~'5..'}[5m]))\n  /\nsum(rate(http_requests_total[5m]))</code></pre><p>Оператор <code>by(label)</code> сохраняет указанные метки после агрегации, а <code>without(label)</code> — наоборот, убирает только перечисленные, оставляя остальные. Регулярные выражения в селекторах задаются через <code>=~</code> (совпадение) и <code>!~</code> (несовпадение).</p>"
-  },
-  {
-   "title": "Alertmanager: alert rules, routes, inhibit_rules, receivers (Slack/email)",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>Alertmanager</strong> принимает алерты от Prometheus (которые срабатывают по правилам в самом Prometheus) и решает, кому и как их отправить.</p><p>Правило алерта задаётся в Prometheus (файл rules.yml):</p><pre><code>groups:\n  - name: app_alerts\n    rules:\n      - alert: HighErrorRate\n        expr: sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) &gt; 0.05\n        for: 5m\n        labels:\n          severity: critical\n        annotations:\n          summary: \"Error rate above 5%\"</code></pre><p><code>for: 5m</code> означает, что условие должно быть истинным непрерывно 5 минут, прежде чем алерт перейдёт в состояние <code>firing</code> (защита от «дребезга»).</p><p>Конфигурация самого Alertmanager (alertmanager.yml):</p><pre><code>route:\n  receiver: default\n  group_by: ['alertname']\n  routes:\n    - match:\n        severity: critical\n      receiver: slack-critical\n\nreceivers:\n  - name: slack-critical\n    slack_configs:\n      - channel: '#alerts'\n        api_url: 'https://hooks.slack.com/...'\n\ninhibit_rules:\n  - source_match:\n      severity: critical\n    target_match:\n      severity: warning\n    equal: ['alertname', 'instance']</code></pre><ul><li><strong>routes</strong> — дерево маршрутизации алертов к разным <strong>receivers</strong> (Slack, email, PagerDuty) по меткам.</li><li><strong>inhibit_rules</strong> — подавляют менее важные алерты (warning), если уже сработал более критичный (critical) на том же instance — снижает шум.</li></ul>"
-  },
-  {
-   "title": "Node Exporter: CPU, memory, disk, network метрики хоста",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>Node Exporter</strong> — официальный экспортёр метрик уровня операционной системы Linux/Unix. Запускается как отдельный процесс (или контейнер) на каждом хосте и отдаёт метрики на порту <code>9100</code> по пути <code>/metrics</code>.</p><p>Запуск через systemd unit или Docker:</p><pre><code>docker run -d --name node-exporter --net='host' --pid='host' \\\n  -v '/:/host:ro,rslave' \\\n  prom/node-exporter --path.rootfs=/host</code></pre><p>Основные группы метрик:</p><ul><li><strong>CPU</strong>: <code>node_cpu_seconds_total{mode='idle|user|system|iowait'}</code> — считать загрузку нужно через <code>rate()</code> и вычитание idle.</li><li><strong>Memory</strong>: <code>node_memory_MemTotal_bytes</code>, <code>node_memory_MemAvailable_bytes</code>.</li><li><strong>Disk</strong>: <code>node_filesystem_avail_bytes</code>, <code>node_disk_io_time_seconds_total</code>.</li><li><strong>Network</strong>: <code>node_network_receive_bytes_total</code>, <code>node_network_transmit_bytes_total</code>.</li></ul><p>Пример вычисления загрузки CPU в процентах:</p><pre><code>100 - (avg by(instance) (rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)</code></pre><p>Пример свободного места на диске в процентах:</p><pre><code>node_filesystem_avail_bytes{fstype!='tmpfs'} / node_filesystem_size_bytes{fstype!='tmpfs'} * 100</code></pre><p>Node Exporter добавляется в <code>scrape_configs</code> Prometheus как отдельный job и является практически стандартом де-факто для мониторинга Linux-хостов.</p>"
-  },
-  {
-   "title": "Grafana: datasource, Dashboard, Panel types (graph, gauge, table, heatmap)",
-   "level": "🟢 Junior",
-   "explanation": "<p><strong>Grafana</strong> — платформа визуализации, не хранящая данные сама, а подключающаяся к внешним источникам.</p><ul><li><strong>Datasource</strong> — подключение к источнику данных: Prometheus, Loki, Elasticsearch, PostgreSQL и др. Настраивается в <strong>Configuration → Data sources</strong>, для Prometheus указывается URL (например, <code>http://prometheus:9090</code>).</li><li><strong>Dashboard</strong> — набор панелей (panels), объединённых общей темой, часто с переменными (variables) для фильтрации.</li><li><strong>Panel types</strong>:\n    <ul>\n      <li><strong>Graph/Time series</strong> — линии значений во времени, самый частый тип для метрик.</li>\n      <li><strong>Gauge</strong> — стрелочный/круговой индикатор для одного значения с порогами (thresholds), например загрузка диска.</li>\n      <li><strong>Table</strong> — табличное представление, удобно для списков top-N (например, top-5 самых нагруженных подов).</li>\n      <li><strong>Heatmap</strong> — визуализация распределения (часто используется для гистограмм latency, показывая плотность значений по времени).</li>\n    </ul>\n  </li></ul><p>Панель конфигурируется через PromQL-запрос в поле Query, например для Graph-панели RPS:</p><pre><code>sum(rate(http_requests_total[5m])) by (service)</code></pre><p>Dashboards можно экспортировать/импортировать как JSON, что удобно для версионирования в Git и переноса между окружениями (dev/staging/prod).</p><table><tr><th>Panel</th><th>Когда использовать</th></tr><tr><td>Time series</td><td>Динамика метрики во времени</td></tr><tr><td>Gauge</td><td>Текущее значение с порогами</td></tr><tr><td>Table</td><td>Списки, топ-N</td></tr><tr><td>Heatmap</td><td>Распределение latency/histogram</td></tr></table>"
-  },
-  {
-   "title": "Grafana Alerting: alert rules, contact points, notification policies",
-   "level": "🟡 Middle",
-   "explanation": "<p>Начиная с Grafana 8+/9+ появилась встроенная система алертинга (Unified Alerting), независимая от Alertmanager Prometheus, но использующая похожие концепции.</p><ul><li><strong>Alert rule</strong> — запрос (обычно PromQL/LogQL) плюс условие срабатывания и период оценки (evaluation interval). Создаётся в <strong>Alerting → Alert rules</strong>.</li><li><strong>Contact point</strong> — конечная точка доставки: Slack webhook, email, PagerDuty, Telegram, webhook. Настраивается в <strong>Alerting → Contact points</strong>.</li><li><strong>Notification policy</strong> — маршрутизация алертов к contact points на основе меток (аналог <code>routes</code> в Alertmanager), с группировкой и таймингами повторов.</li></ul><p>Пример правила (YAML-провизионирование через файл):</p><pre><code>groups:\n  - name: node_alerts\n    rules:\n      - alert: HighMemoryUsage\n        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) &gt; 0.9\n        for: 10m\n        labels:\n          severity: warning\n        annotations:\n          summary: \"Memory usage above 90% on {{ $labels.instance }}\"</code></pre><p>Ключевое отличие от классического Alertmanager: Grafana Alerting может работать сразу с несколькими datasource (не только Prometheus), а Alertmanager остаётся полезен, когда несколько Prometheus-инстансов должны дедуплицировать и маршрутизировать алерты централизованно. Grafana умеет также пересылать алерты во внешний Alertmanager при необходимости гибридной схемы.</p>"
-  },
-  {
-   "title": "Service Discovery: file_sd_configs, kubernetes_sd, ec2_sd",
-   "level": "🟡 Middle",
-   "explanation": "<p>В динамических окружениях список targets постоянно меняется (поды пересоздаются, EC2-инстансы масштабируются), поэтому статический список в конфиге не работает — используется <strong>Service Discovery (SD)</strong>.</p><ul><li><strong>file_sd_configs</strong> — Prometheus читает список targets из JSON/YAML файла, который обновляется внешним процессом (например, скриптом или другой системой). Prometheus следит за файлом и автоматически подхватывает изменения без перезапуска.\n<pre><code>scrape_configs:\n  - job_name: 'file-sd'\n    file_sd_configs:\n      - files: ['/etc/prometheus/targets/*.json']\n        refresh_interval: 30s</code></pre></li><li><strong>kubernetes_sd_configs</strong> — Prometheus напрямую опрашивает Kubernetes API и автоматически находит поды, сервисы, endpoints, ноды. Обычно комбинируется с <code>relabel_configs</code>, чтобы фильтровать нужные объекты по аннотациям (например, <code>prometheus.io/scrape: 'true'</code>).\n<pre><code>scrape_configs:\n  - job_name: 'kubernetes-pods'\n    kubernetes_sd_configs:\n      - role: pod\n    relabel_configs:\n      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]\n        action: keep\n        regex: true</code></pre></li><li><strong>ec2_sd_configs</strong> — обнаружение инстансов AWS EC2 по тегам/региону, полезно при автоскейлинге в облаке.</li></ul><p>Механизм <code>relabel_configs</code> общий для всех типов SD — он позволяет переписывать/фильтровать метки targets до и после скрейпа, что критично для контроля над тем, какие цели попадают в мониторинг.</p>"
-  },
-  {
-   "title": "Recording rules: предвычисленные метрики для производительности",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>Recording rules</strong> позволяют заранее (периодически) вычислять сложные или часто используемые PromQL-выражения и сохранять результат как новую метрику. Это ускоряет дашборды и снижает нагрузку на Prometheus при частых запросах тяжёлых выражений.</p><p>Файл правил (аналогичен alert rules, но с полем <code>record</code> вместо <code>alert</code>):</p><pre><code>groups:\n  - name: recording_rules\n    interval: 30s\n    rules:\n      - record: job:http_requests:rate5m\n        expr: sum(rate(http_requests_total[5m])) by (job)\n\n      - record: job:http_errors:rate5m\n        expr: sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (job)\n\n      - record: job:error_ratio:rate5m\n        expr: job:http_errors:rate5m / job:http_requests:rate5m</code></pre><p>Правило подключается в <code>prometheus.yml</code>:</p><pre><code>rule_files:\n  - 'recording_rules.yml'</code></pre><p>После этого в Grafana или в alert-правилах вместо тяжёлого <code>sum(rate(...))</code> можно обращаться напрямую к <code>job:error_ratio:rate5m</code> — запрос выполняется мгновенно, так как значение уже посчитано.</p><p>Соглашение по именованию (best practice Prometheus): <code>уровень_агрегации:метрика:операция</code>, например <code>job:http_requests:rate5m</code> — это облегчает понимание смысла метрики без чтения её выражения. Recording rules особенно важны для SLO-дашбордов, где одни и те же агрегаты запрашиваются десятки раз в минуту разными панелями.</p>"
-  },
-  {
-   "title": "Custom exporter: написание на Go или Python (prometheus_client)",
-   "level": "🟡 Middle",
-   "explanation": "<p>Когда готового exporter'а нет (кастомное приложение, специфичная база, внутренний сервис), пишут собственный exporter, отдающий метрики в формате Prometheus по HTTP.</p><p>Пример на Python с <code>prometheus_client</code>:</p><pre><code>from prometheus_client import start_http_server, Counter, Gauge\nimport random, time\n\nREQUESTS = Counter('myapp_requests_total', 'Total requests', ['method'])\nQUEUE_SIZE = Gauge('myapp_queue_size', 'Current queue size')\n\nif __name__ == '__main__':\n    start_http_server(8000)  # отдаёт /metrics\n    while True:\n        REQUESTS.labels(method='GET').inc()\n        QUEUE_SIZE.set(random.randint(0, 100))\n        time.sleep(5)</code></pre><p>После запуска метрики доступны по <code>http://host:8000/metrics</code> в текстовом exposition-формате, который Prometheus умеет скрейпить как обычный target.</p><p>Аналогичный подход на Go через библиотеку <code>client_golang</code>:</p><pre><code>import \"github.com/prometheus/client_golang/prometheus\"\nimport \"github.com/prometheus/client_golang/prometheus/promhttp\"\n\nvar requests = prometheus.NewCounter(prometheus.CounterOpts{\n    Name: \"myapp_requests_total\",\n    Help: \"Total requests\",\n})\n\nfunc main() {\n    prometheus.MustRegister(requests)\n    http.Handle(\"/metrics\", promhttp.Handler())\n    http.ListenAndServe(\":8000\", nil)\n}</code></pre><p>Ключевые правила при написании кастомного exporter'а: избегать метрик с высокой кардинальностью (не использовать user_id или request_id как label — это взорвёт объём данных Prometheus), называть метрики с суффиксом единиц измерения (<code>_seconds</code>, <code>_bytes</code>, <code>_total</code> для counters).</p>"
-  },
-  {
-   "title": "Grafana variables и templating: $datasource, $job, $instance",
-   "level": "🟡 Middle",
-   "explanation": "<p><strong>Templating (переменные)</strong> позволяет делать дашборды универсальными и переиспользуемыми, не создавая копию под каждый инстанс/сервис/окружение.</p><p>Типы переменных, создаваемых в <strong>Dashboard settings → Variables</strong>:</p><ul><li><strong>Data source variable</strong> — <code>$datasource</code>, позволяет один и тот же дашборд применять к разным Prometheus-инстансам (например, prod и staging).</li><li><strong>Query variable</strong> — значения подтягиваются PromQL-запросом типа <code>label_values(up, job)</code> — так получают список всех значений метки <code>job</code>, формируя переменную <code>$job</code>.</li><li><strong>Query variable для instance</strong> — <code>label_values(up{job='$job'}, instance)</code> — зависимая переменная <code>$instance</code>, список которой сужается в зависимости от выбранного <code>$job</code> (цепочка зависимостей).</li></ul><p>Использование переменных в панели:</p><pre><code>sum(rate(http_requests_total{job=\"$job\", instance=\"$instance\"}[5m]))</code></pre><p>Дополнительно можно включить опцию <strong>Multi-value</strong> и <strong>Include All option</strong>, чтобы пользователь дашборда мог выбрать сразу несколько значений или все — тогда в запросе значение подставляется как regex через оператор <code>=~</code>: <code>instance=~\"$instance\"</code>.</p><p>Переменные — основа для построения одного «мастер-дашборда», который переиспользуется для десятков сервисов и окружений вместо дублирования JSON.</p>"
-  },
-  {
-   "title": "Thanos / Victoria Metrics: long-term storage, global view",
-   "level": "🔴 Senior",
-   "explanation": "<p>Стандартный Prometheus хранит данные локально на диске и плохо масштабируется горизонтально — для мультикластерных инсталляций и долгосрочного хранения (месяцы/годы) используют надстройки.</p><p><strong>Thanos</strong> — набор компонентов, дополняющих Prometheus:</p><ul><li><strong>Sidecar</strong> — запускается рядом с каждым Prometheus, отдаёт данные через gRPC и опционально загружает блоки в object storage (S3/GCS).</li><li><strong>Store Gateway</strong> — читает исторические блоки из object storage для запросов за старые периоды.</li><li><strong>Querier</strong> — единая точка запроса, агрегирующая данные из всех Prometheus (через sidecars) и Store Gateway — обеспечивает <strong>global view</strong> по всем кластерам/регионам.</li><li><strong>Compactor</strong> — сжимает и down-sample'ит старые данные для экономии места.</li></ul><p><strong>Victoria Metrics</strong> — альтернатива, изначально спроектированная как единая time-series база данных с собственным эффективным форматом хранения. Проще в эксплуатации (меньше компонентов, чем у Thanos), совместима с PromQL (и расширенным MetricsQL), поддерживает remote_write из Prometheus:</p><pre><code>remote_write:\n  - url: \"http://victoriametrics:8428/api/v1/write\"</code></pre><table><tr><th>Критерий</th><th>Thanos</th><th>VictoriaMetrics</th></tr><tr><td>Сложность</td><td>Выше (много компонентов)</td><td>Ниже (единый бинарь/кластер)</td></tr><tr><td>Хранение</td><td>Object storage (S3/GCS)</td><td>Собственный формат на диске</td></tr><tr><td>Global view</td><td>Да, через Querier</td><td>Да, через vmselect</td></tr></table><p>Оба решения решают проблему single point of failure и ограниченного объёма локального Prometheus, обеспечивая централизованный долгосрочный мониторинг для крупных инфраструктур.</p>"
-  }
- ],
- "quiz": [
-  {
-   "q": "Какой из трёх столпов observability отвечает на вопрос «где именно в цепочке микросервисов возникла задержка»?",
-   "options": [
-    "Metrics",
-    "Logs",
-    "Traces",
-    "Alerts"
-   ],
-   "answer": 2,
-   "explain": "Traces показывают путь запроса через все сервисы с временными отметками на каждом этапе, что позволяет локализовать узкое место."
-  },
-  {
-   "q": "Какой тип метрики Prometheus монотонно возрастает и требует функции rate() для анализа скорости изменения?",
-   "options": [
-    "Gauge",
-    "Counter",
-    "Summary",
-    "Histogram"
-   ],
-   "answer": 1,
-   "explain": "Counter только растёт (сбрасываясь при перезапуске), поэтому напрямую использовать его значение бессмысленно — нужен rate() или increase()."
-  },
-  {
-   "q": "Какая функция PromQL вычисляет перцентиль на основе бакетов Histogram?",
-   "options": [
-    "quantile()",
-    "histogram_quantile()",
-    "percentile()",
-    "bucket_quantile()"
-   ],
-   "answer": 1,
-   "explain": "histogram_quantile() принимает уровень квантиля и range vector бакетов гистограммы, вычисляя приближённое значение перцентиля."
-  },
-  {
-   "q": "В конфиге prometheus.yml, какой параметр задаёт частоту опроса целей внутри job?",
-   "options": [
-    "evaluation_interval",
-    "scrape_interval",
-    "poll_rate",
-    "target_interval"
-   ],
-   "answer": 1,
-   "explain": "scrape_interval определяет, как часто Prometheus опрашивает targets; может быть задан глобально или переопределён на уровне job."
-  },
-  {
-   "q": "Что делает inhibit_rules в конфигурации Alertmanager?",
-   "options": [
-    "Отправляет копию алерта в несколько receivers одновременно",
-    "Подавляет менее важные алерты, если уже сработал более критичный по тем же меткам",
-    "Задерживает отправку алерта на заданное время",
-    "Группирует одинаковые алерты в один"
-   ],
-   "answer": 1,
-   "explain": "inhibit_rules снижают шум, подавляя, например, warning-алерты по тому же instance, если уже firing критичный алерт с той же меткой."
-  },
-  {
-   "q": "На каком порту и пути по умолчанию Node Exporter отдаёт метрики?",
-   "options": [
-    "9090/metrics",
-    "9100/metrics",
-    "8080/metrics",
-    "3000/metrics"
-   ],
-   "answer": 1,
-   "explain": "Node Exporter по умолчанию слушает порт 9100 и отдаёт метрики хоста (CPU, память, диск, сеть) по пути /metrics."
-  },
-  {
-   "q": "Какой тип панели Grafana лучше всего подходит для визуализации распределения значений latency histogram во времени?",
-   "options": [
-    "Gauge",
-    "Table",
-    "Heatmap",
-    "Stat"
-   ],
-   "answer": 2,
-   "explain": "Heatmap показывает плотность распределения значений по бакетам во времени, что идеально подходит для histogram-метрик latency."
-  },
-  {
-   "q": "Чем Grafana Unified Alerting отличается от классического Prometheus Alertmanager?",
-   "options": [
-    "Не поддерживает Slack",
-    "Работает только с логами",
-    "Может работать сразу с несколькими типами datasource, а не только с Prometheus",
-    "Не поддерживает группировку алертов"
-   ],
-   "answer": 2,
-   "explain": "Grafana Alerting может строить правила на основе разных datasource (Prometheus, Loki, SQL и др.), в то время как Alertmanager работает только с алертами от Prometheus."
-  },
-  {
-   "q": "Какой механизм Service Discovery Prometheus используют для автоматического поиска подов в Kubernetes?",
-   "options": [
-    "file_sd_configs",
-    "ec2_sd_configs",
-    "kubernetes_sd_configs",
-    "consul_sd_configs"
-   ],
-   "answer": 2,
-   "explain": "kubernetes_sd_configs позволяет Prometheus обращаться к Kubernetes API и находить поды/сервисы/endpoints, обычно в сочетании с relabel_configs."
-  },
-  {
-   "q": "Для чего используются recording rules в Prometheus?",
-   "options": [
-    "Для отправки алертов в Slack",
-    "Для предварительного вычисления и сохранения результата тяжёлых PromQL-выражений как новой метрики",
-    "Для настройки TLS между Prometheus и targets",
-    "Для ограничения количества scrape targets"
-   ],
-   "answer": 1,
-   "explain": "Recording rules периодически вычисляют выражение и сохраняют результат как новую метрику, ускоряя частые тяжёлые запросы в дашбордах и alert rules."
-  },
-  {
-   "q": "Какая практика считается анти-паттерном при написании кастомного Prometheus exporter'а?",
-   "options": [
-    "Использовать суффикс _total для counters",
-    "Использовать user_id или request_id как значение label",
-    "Отдавать метрики по HTTP на /metrics",
-    "Регистрировать метрики через MustRegister"
-   ],
-   "answer": 1,
-   "explain": "Использование высококардинальных значений (user_id, request_id) как label приводит к взрывному росту количества временных рядов и деградации Prometheus."
-  },
-  {
-   "q": "Какой компонент Thanos обеспечивает единую точку запроса (global view) по данным из нескольких Prometheus-инстансов?",
-   "options": [
-    "Sidecar",
-    "Compactor",
-    "Store Gateway",
-    "Querier"
-   ],
-   "answer": 3,
-   "explain": "Querier агрегирует данные, получаемые через Sidecar от разных Prometheus и через Store Gateway из object storage, предоставляя единый интерфейс запросов."
-  }
- ]
+  "phase": "Phase 4 — Cloud + Monitoring + Security",
+  "section": "📊 Prometheus + Grafana",
+  "topics": [
+    {
+      "title": "Три столпа observability: metrics, logs, traces — роль каждого",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>Observability</strong> строится на трёх типах телеметрии, каждый отвечает на свой вопрос.</p><ul><li><strong>Metrics</strong> — числовые ряды во времени (CPU, RPS, latency). Дешёвые в хранении, отлично агрегируются, отвечают на вопрос «что происходит и как сильно».</li><li><strong>Logs</strong> — дискретные события с контекстом. Отвечают на вопрос «что именно произошло» на конкретном запросе или в конкретный момент.</li><li><strong>Traces</strong> — цепочка вызовов между сервисами для одного запроса. Отвечают на вопрос «где именно в distributed-системе возникла задержка или ошибка».</li></ul><p>Типичный workflow расследования инцидента: метрика в Grafana показала аномалию (например, рост <code>error_rate</code>) → переходим в логи за этот период, чтобы найти конкретные ошибки → если система распределённая, смотрим trace конкретного медленного запроса, чтобы понять, какой сервис в цепочке «тормозит».</p><p>В стеке Prometheus+Grafana это выглядит так: Prometheus собирает и хранит метрики, Loki/ELK — логи, Jaeger/Tempo — трейсы, а Grafana объединяет всё в единый UI с возможностью «прыгать» между ними по общим меткам (например, <code>trace_id</code>).</p><table><tr><th>Тип</th><th>Пример инструмента</th><th>Вопрос</th></tr><tr><td>Metrics</td><td>Prometheus</td><td>Что и насколько сильно?</td></tr><tr><td>Logs</td><td>Loki/ELK</td><td>Что конкретно произошло?</td></tr><tr><td>Traces</td><td>Jaeger/Tempo</td><td>Где узкое место?</td></tr></table>",
+      "links": [
+        {
+          "title": "Prometheus — Overview, что такое observability и метрики",
+          "url": "https://prometheus.io/docs/introduction/overview/"
+        },
+        {
+          "title": "Grafana — What is observability",
+          "url": "https://grafana.com/docs/grafana/latest/introduction/"
+        },
+        {
+          "title": "Grafana Labs — Monitor infrastructure (LGTM stack)",
+          "url": "https://grafana.com/docs/grafana-cloud/monitor-infrastructure/"
+        }
+      ]
+    },
+    {
+      "title": "Типы метрик Prometheus: Counter, Gauge, Histogram, Summary",
+      "level": "🟢 Junior",
+      "explanation": "<p>Prometheus определяет 4 базовых типа метрик, каждый со своей семантикой и правилами обработки в PromQL.</p><ul><li><strong>Counter</strong> — монотонно возрастающее значение (никогда не уменьшается, кроме сброса при перезапуске). Используется для количества запросов, ошибок, байт. Пример: <code>http_requests_total</code>. Работать с ним напрямую бессмысленно — нужен <code>rate()</code> или <code>increase()</code>.</li><li><strong>Gauge</strong> — значение, которое может как расти, так и падать. Используется для текущей загрузки, температуры, количества активных соединений. Пример: <code>node_memory_MemAvailable_bytes</code>.</li><li><strong>Histogram</strong> — распределяет наблюдения по бакетам (buckets) и считает их сумму и количество. Позволяет вычислять перцентили на стороне сервера запроса через <code>histogram_quantile()</code>. Пример: <code>http_request_duration_seconds_bucket</code>.</li><li><strong>Summary</strong> — похож на Histogram, но перцентили вычисляются на клиенте (в приложении) и не агрегируются между инстансами. Проще для простых случаев, но менее гибкий.</li></ul><p>Пример объявления Histogram в клиентской библиотеке (Python):</p><pre><code>from prometheus_client import Histogram\nREQUEST_LATENCY = Histogram('http_request_duration_seconds', 'Latency', buckets=[0.1, 0.5, 1, 2, 5])</code></pre><p>Запрос перцентиля через PromQL:</p><pre><code>histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))</code></pre><table><tr><th>Тип</th><th>Направление</th><th>Пример PromQL</th></tr><tr><td>Counter</td><td>только рост</td><td><code>rate(errors_total[5m])</code></td></tr><tr><td>Gauge</td><td>вверх/вниз</td><td><code>node_memory_MemFree_bytes</code></td></tr><tr><td>Histogram</td><td>бакеты</td><td><code>histogram_quantile(0.99, ...)</code></td></tr><tr><td>Summary</td><td>клиентские квантили</td><td><code>my_summary{quantile='0.9'}</code></td></tr></table>",
+      "links": [
+        {
+          "title": "Prometheus — Metric Types (Counter, Gauge, Histogram, Summary)",
+          "url": "https://prometheus.io/docs/concepts/metric_types/"
+        },
+        {
+          "title": "Prometheus — Histograms and Summaries",
+          "url": "https://prometheus.io/docs/practices/histograms/"
+        },
+        {
+          "title": "Prometheus Client Python — библиотека для метрик",
+          "url": "https://github.com/prometheus/client_python"
+        }
+      ]
+    },
+    {
+      "title": "Prometheus config: scrape_configs, targets, scrape_interval",
+      "level": "🟢 Junior",
+      "explanation": "<p>Конфигурация Prometheus описывается в <code>prometheus.yml</code>. Ключевой раздел — <strong>scrape_configs</strong>, определяющий, откуда и как часто собирать метрики.</p><pre><code>global:\n  scrape_interval: 15s\n  evaluation_interval: 15s\n\nscrape_configs:\n  - job_name: 'node_exporter'\n    scrape_interval: 10s\n    static_configs:\n      - targets: ['10.0.0.1:9100', '10.0.0.2:9100']\n        labels:\n          env: 'production'\n\n  - job_name: 'app'\n    metrics_path: /metrics\n    static_configs:\n      - targets: ['app1:8080', 'app2:8080']</code></pre><ul><li><strong>job_name</strong> — логическое имя группы целей, попадает в метку <code>job</code>.</li><li><strong>scrape_interval</strong> — как часто Prometheus опрашивает цель (по умолчанию из <code>global</code>, можно переопределить на job).</li><li><strong>static_configs.targets</strong> — список <code>host:port</code>, где приложение отдаёт метрики на <code>/metrics</code> (путь можно менять через <code>metrics_path</code>).</li><li><strong>labels</strong> — дополнительные метки, добавляемые ко всем метрикам с этих targets.</li></ul><p>Каждый target должен отдавать метрики в текстовом формате Prometheus exposition format по HTTP. Проверить доступность и статус целей можно в веб-интерфейсе Prometheus на странице <strong>Status → Targets</strong>, где видно состояние <code>UP</code>/<code>DOWN</code> и время последнего успешного скрейпа.</p><p>Для динамических окружений вместо <code>static_configs</code> используют service discovery (Kubernetes, EC2 и т.д.), о котором отдельная тема.</p>",
+      "links": [
+        {
+          "title": "Prometheus Configuration — scrape_config",
+          "url": "https://prometheus.io/docs/prometheus/latest/configuration/configuration/#scrape_config"
+        },
+        {
+          "title": "Getting Started with Prometheus — первый запуск и конфиг",
+          "url": "https://prometheus.io/docs/prometheus/latest/getting_started/"
+        }
+      ]
+    },
+    {
+      "title": "PromQL базовый: selectors, rate(), sum(), avg(), by(label)",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>PromQL</strong> — язык запросов Prometheus. Базовые элементы:</p><ul><li><strong>Instant vector selector</strong> — выбирает текущее значение метрики: <code>http_requests_total{job='app', status='500'}</code>.</li><li><strong>Range vector selector</strong> — выбирает диапазон значений за период: <code>http_requests_total[5m]</code> — используется как вход для функций типа <code>rate()</code>.</li><li><strong><code>rate()</code></strong> — средняя скорость роста counter в секунду за интервал, корректно обрабатывает сбросы (перезапуски). Обязателен для counters: <code>rate(http_requests_total[5m])</code>.</li><li><strong><code>sum()</code></strong> — агрегирует значения по всем меткам в одно число, либо по подмножеству через <code>by(...)</code>.</li><li><strong><code>avg()</code></strong> — среднее значение, аналогично с <code>by()</code>.</li></ul><p>Примеры реальных запросов:</p><pre><code># Общий RPS по всем инстансам job \"app\"\nsum(rate(http_requests_total{job='app'}[5m]))\n\n# RPS в разрезе по коду ответа\nsum(rate(http_requests_total[5m])) by (status)\n\n# Средняя загрузка CPU по узлам\navg(rate(node_cpu_seconds_total{mode!='idle'}[5m])) by (instance)\n\n# Доля ошибок 5xx\nsum(rate(http_requests_total{status=~'5..'}[5m]))\n  /\nsum(rate(http_requests_total[5m]))</code></pre><p>Оператор <code>by(label)</code> сохраняет указанные метки после агрегации, а <code>without(label)</code> — наоборот, убирает только перечисленные, оставляя остальные. Регулярные выражения в селекторах задаются через <code>=~</code> (совпадение) и <code>!~</code> (несовпадение).</p>",
+      "links": [
+        {
+          "title": "PromQL — Querying basics",
+          "url": "https://prometheus.io/docs/prometheus/latest/querying/basics/"
+        },
+        {
+          "title": "PromQL — Query functions (rate, sum, avg)",
+          "url": "https://prometheus.io/docs/prometheus/latest/querying/functions/"
+        },
+        {
+          "title": "PromQL — Operators (by, without)",
+          "url": "https://prometheus.io/docs/prometheus/latest/querying/operators/"
+        }
+      ]
+    },
+    {
+      "title": "Alertmanager: alert rules, routes, inhibit_rules, receivers (Slack/email)",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>Alertmanager</strong> принимает алерты от Prometheus (которые срабатывают по правилам в самом Prometheus) и решает, кому и как их отправить.</p><p>Правило алерта задаётся в Prometheus (файл rules.yml):</p><pre><code>groups:\n  - name: app_alerts\n    rules:\n      - alert: HighErrorRate\n        expr: sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) &gt; 0.05\n        for: 5m\n        labels:\n          severity: critical\n        annotations:\n          summary: \"Error rate above 5%\"</code></pre><p><code>for: 5m</code> означает, что условие должно быть истинным непрерывно 5 минут, прежде чем алерт перейдёт в состояние <code>firing</code> (защита от «дребезга»).</p><p>Конфигурация самого Alertmanager (alertmanager.yml):</p><pre><code>route:\n  receiver: default\n  group_by: ['alertname']\n  routes:\n    - match:\n        severity: critical\n      receiver: slack-critical\n\nreceivers:\n  - name: slack-critical\n    slack_configs:\n      - channel: '#alerts'\n        api_url: 'https://hooks.slack.com/...'\n\ninhibit_rules:\n  - source_match:\n      severity: critical\n    target_match:\n      severity: warning\n    equal: ['alertname', 'instance']</code></pre><ul><li><strong>routes</strong> — дерево маршрутизации алертов к разным <strong>receivers</strong> (Slack, email, PagerDuty) по меткам.</li><li><strong>inhibit_rules</strong> — подавляют менее важные алерты (warning), если уже сработал более критичный (critical) на том же instance — снижает шум.</li></ul>",
+      "links": [
+        {
+          "title": "Alertmanager — документация",
+          "url": "https://prometheus.io/docs/alerting/latest/alertmanager/"
+        },
+        {
+          "title": "Alerting Rules — правила алертов в Prometheus",
+          "url": "https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/"
+        },
+        {
+          "title": "Alertmanager Configuration — routes, receivers, inhibit_rules",
+          "url": "https://prometheus.io/docs/alerting/latest/configuration/"
+        }
+      ]
+    },
+    {
+      "title": "Node Exporter: CPU, memory, disk, network метрики хоста",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>Node Exporter</strong> — официальный экспортёр метрик уровня операционной системы Linux/Unix. Запускается как отдельный процесс (или контейнер) на каждом хосте и отдаёт метрики на порту <code>9100</code> по пути <code>/metrics</code>.</p><p>Запуск через systemd unit или Docker:</p><pre><code>docker run -d --name node-exporter --net='host' --pid='host' \\\n  -v '/:/host:ro,rslave' \\\n  prom/node-exporter --path.rootfs=/host</code></pre><p>Основные группы метрик:</p><ul><li><strong>CPU</strong>: <code>node_cpu_seconds_total{mode='idle|user|system|iowait'}</code> — считать загрузку нужно через <code>rate()</code> и вычитание idle.</li><li><strong>Memory</strong>: <code>node_memory_MemTotal_bytes</code>, <code>node_memory_MemAvailable_bytes</code>.</li><li><strong>Disk</strong>: <code>node_filesystem_avail_bytes</code>, <code>node_disk_io_time_seconds_total</code>.</li><li><strong>Network</strong>: <code>node_network_receive_bytes_total</code>, <code>node_network_transmit_bytes_total</code>.</li></ul><p>Пример вычисления загрузки CPU в процентах:</p><pre><code>100 - (avg by(instance) (rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)</code></pre><p>Пример свободного места на диске в процентах:</p><pre><code>node_filesystem_avail_bytes{fstype!='tmpfs'} / node_filesystem_size_bytes{fstype!='tmpfs'} * 100</code></pre><p>Node Exporter добавляется в <code>scrape_configs</code> Prometheus как отдельный job и является практически стандартом де-факто для мониторинга Linux-хостов.</p>",
+      "links": [
+        {
+          "title": "Node Exporter — GitHub репозиторий и документация",
+          "url": "https://github.com/prometheus/node_exporter"
+        },
+        {
+          "title": "Prometheus Exporters — обзор экосистемы",
+          "url": "https://prometheus.io/docs/instrumenting/exporters/"
+        }
+      ]
+    },
+    {
+      "title": "Grafana: datasource, Dashboard, Panel types (graph, gauge, table, heatmap)",
+      "level": "🟢 Junior",
+      "explanation": "<p><strong>Grafana</strong> — платформа визуализации, не хранящая данные сама, а подключающаяся к внешним источникам.</p><ul><li><strong>Datasource</strong> — подключение к источнику данных: Prometheus, Loki, Elasticsearch, PostgreSQL и др. Настраивается в <strong>Configuration → Data sources</strong>, для Prometheus указывается URL (например, <code>http://prometheus:9090</code>).</li><li><strong>Dashboard</strong> — набор панелей (panels), объединённых общей темой, часто с переменными (variables) для фильтрации.</li><li><strong>Panel types</strong>:\n    <ul>\n      <li><strong>Graph/Time series</strong> — линии значений во времени, самый частый тип для метрик.</li>\n      <li><strong>Gauge</strong> — стрелочный/круговой индикатор для одного значения с порогами (thresholds), например загрузка диска.</li>\n      <li><strong>Table</strong> — табличное представление, удобно для списков top-N (например, top-5 самых нагруженных подов).</li>\n      <li><strong>Heatmap</strong> — визуализация распределения (часто используется для гистограмм latency, показывая плотность значений по времени).</li>\n    </ul>\n  </li></ul><p>Панель конфигурируется через PromQL-запрос в поле Query, например для Graph-панели RPS:</p><pre><code>sum(rate(http_requests_total[5m])) by (service)</code></pre><p>Dashboards можно экспортировать/импортировать как JSON, что удобно для версионирования в Git и переноса между окружениями (dev/staging/prod).</p><table><tr><th>Panel</th><th>Когда использовать</th></tr><tr><td>Time series</td><td>Динамика метрики во времени</td></tr><tr><td>Gauge</td><td>Текущее значение с порогами</td></tr><tr><td>Table</td><td>Списки, топ-N</td></tr><tr><td>Heatmap</td><td>Распределение latency/histogram</td></tr></table>",
+      "links": [
+        {
+          "title": "Grafana — Data sources, документация",
+          "url": "https://grafana.com/docs/grafana/latest/datasources/"
+        },
+        {
+          "title": "Grafana — Dashboards, документация",
+          "url": "https://grafana.com/docs/grafana/latest/dashboards/"
+        },
+        {
+          "title": "Grafana — Panels and visualizations",
+          "url": "https://grafana.com/docs/grafana/latest/panels-visualizations/"
+        }
+      ]
+    },
+    {
+      "title": "Grafana Alerting: alert rules, contact points, notification policies",
+      "level": "🟡 Middle",
+      "explanation": "<p>Начиная с Grafana 8+/9+ появилась встроенная система алертинга (Unified Alerting), независимая от Alertmanager Prometheus, но использующая похожие концепции.</p><ul><li><strong>Alert rule</strong> — запрос (обычно PromQL/LogQL) плюс условие срабатывания и период оценки (evaluation interval). Создаётся в <strong>Alerting → Alert rules</strong>.</li><li><strong>Contact point</strong> — конечная точка доставки: Slack webhook, email, PagerDuty, Telegram, webhook. Настраивается в <strong>Alerting → Contact points</strong>.</li><li><strong>Notification policy</strong> — маршрутизация алертов к contact points на основе меток (аналог <code>routes</code> в Alertmanager), с группировкой и таймингами повторов.</li></ul><p>Пример правила (YAML-провизионирование через файл):</p><pre><code>groups:\n  - name: node_alerts\n    rules:\n      - alert: HighMemoryUsage\n        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) &gt; 0.9\n        for: 10m\n        labels:\n          severity: warning\n        annotations:\n          summary: \"Memory usage above 90% on {{ $labels.instance }}\"</code></pre><p>Ключевое отличие от классического Alertmanager: Grafana Alerting может работать сразу с несколькими datasource (не только Prometheus), а Alertmanager остаётся полезен, когда несколько Prometheus-инстансов должны дедуплицировать и маршрутизировать алерты централизованно. Grafana умеет также пересылать алерты во внешний Alertmanager при необходимости гибридной схемы.</p>",
+      "links": [
+        {
+          "title": "Grafana Alerting — документация (Unified Alerting)",
+          "url": "https://grafana.com/docs/grafana/latest/alerting/"
+        },
+        {
+          "title": "Grafana Alerting — Contact points",
+          "url": "https://grafana.com/docs/grafana/latest/alerting/configure-notifications/manage-contact-points/"
+        },
+        {
+          "title": "Grafana Alerting — Notification policies",
+          "url": "https://grafana.com/docs/grafana/latest/alerting/configure-notifications/create-notification-policy/"
+        }
+      ]
+    },
+    {
+      "title": "Service Discovery: file_sd_configs, kubernetes_sd, ec2_sd",
+      "level": "🟡 Middle",
+      "explanation": "<p>В динамических окружениях список targets постоянно меняется (поды пересоздаются, EC2-инстансы масштабируются), поэтому статический список в конфиге не работает — используется <strong>Service Discovery (SD)</strong>.</p><ul><li><strong>file_sd_configs</strong> — Prometheus читает список targets из JSON/YAML файла, который обновляется внешним процессом (например, скриптом или другой системой). Prometheus следит за файлом и автоматически подхватывает изменения без перезапуска.\n<pre><code>scrape_configs:\n  - job_name: 'file-sd'\n    file_sd_configs:\n      - files: ['/etc/prometheus/targets/*.json']\n        refresh_interval: 30s</code></pre></li><li><strong>kubernetes_sd_configs</strong> — Prometheus напрямую опрашивает Kubernetes API и автоматически находит поды, сервисы, endpoints, ноды. Обычно комбинируется с <code>relabel_configs</code>, чтобы фильтровать нужные объекты по аннотациям (например, <code>prometheus.io/scrape: 'true'</code>).\n<pre><code>scrape_configs:\n  - job_name: 'kubernetes-pods'\n    kubernetes_sd_configs:\n      - role: pod\n    relabel_configs:\n      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]\n        action: keep\n        regex: true</code></pre></li><li><strong>ec2_sd_configs</strong> — обнаружение инстансов AWS EC2 по тегам/региону, полезно при автоскейлинге в облаке.</li></ul><p>Механизм <code>relabel_configs</code> общий для всех типов SD — он позволяет переписывать/фильтровать метки targets до и после скрейпа, что критично для контроля над тем, какие цели попадают в мониторинг.</p>",
+      "links": [
+        {
+          "title": "Prometheus — Configuration: kubernetes_sd_config",
+          "url": "https://prometheus.io/docs/prometheus/latest/configuration/configuration/#kubernetes_sd_config"
+        },
+        {
+          "title": "Prometheus — file_sd_config документация",
+          "url": "https://prometheus.io/docs/prometheus/latest/configuration/configuration/#file_sd_config"
+        },
+        {
+          "title": "Prometheus — ec2_sd_config документация",
+          "url": "https://prometheus.io/docs/prometheus/latest/configuration/configuration/#ec2_sd_config"
+        },
+        {
+          "title": "Prometheus — relabel_config документация",
+          "url": "https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config"
+        }
+      ]
+    },
+    {
+      "title": "Recording rules: предвычисленные метрики для производительности",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>Recording rules</strong> позволяют заранее (периодически) вычислять сложные или часто используемые PromQL-выражения и сохранять результат как новую метрику. Это ускоряет дашборды и снижает нагрузку на Prometheus при частых запросах тяжёлых выражений.</p><p>Файл правил (аналогичен alert rules, но с полем <code>record</code> вместо <code>alert</code>):</p><pre><code>groups:\n  - name: recording_rules\n    interval: 30s\n    rules:\n      - record: job:http_requests:rate5m\n        expr: sum(rate(http_requests_total[5m])) by (job)\n\n      - record: job:http_errors:rate5m\n        expr: sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (job)\n\n      - record: job:error_ratio:rate5m\n        expr: job:http_errors:rate5m / job:http_requests:rate5m</code></pre><p>Правило подключается в <code>prometheus.yml</code>:</p><pre><code>rule_files:\n  - 'recording_rules.yml'</code></pre><p>После этого в Grafana или в alert-правилах вместо тяжёлого <code>sum(rate(...))</code> можно обращаться напрямую к <code>job:error_ratio:rate5m</code> — запрос выполняется мгновенно, так как значение уже посчитано.</p><p>Соглашение по именованию (best practice Prometheus): <code>уровень_агрегации:метрика:операция</code>, например <code>job:http_requests:rate5m</code> — это облегчает понимание смысла метрики без чтения её выражения. Recording rules особенно важны для SLO-дашбордов, где одни и те же агрегаты запрашиваются десятки раз в минуту разными панелями.</p>",
+      "links": [
+        {
+          "title": "Prometheus — Recording Rules документация",
+          "url": "https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/"
+        },
+        {
+          "title": "Prometheus — Best practices: naming rules",
+          "url": "https://prometheus.io/docs/practices/rules/"
+        }
+      ]
+    },
+    {
+      "title": "Custom exporter: написание на Go или Python (prometheus_client)",
+      "level": "🟡 Middle",
+      "explanation": "<p>Когда готового exporter'а нет (кастомное приложение, специфичная база, внутренний сервис), пишут собственный exporter, отдающий метрики в формате Prometheus по HTTP.</p><p>Пример на Python с <code>prometheus_client</code>:</p><pre><code>from prometheus_client import start_http_server, Counter, Gauge\nimport random, time\n\nREQUESTS = Counter('myapp_requests_total', 'Total requests', ['method'])\nQUEUE_SIZE = Gauge('myapp_queue_size', 'Current queue size')\n\nif __name__ == '__main__':\n    start_http_server(8000)  # отдаёт /metrics\n    while True:\n        REQUESTS.labels(method='GET').inc()\n        QUEUE_SIZE.set(random.randint(0, 100))\n        time.sleep(5)</code></pre><p>После запуска метрики доступны по <code>http://host:8000/metrics</code> в текстовом exposition-формате, который Prometheus умеет скрейпить как обычный target.</p><p>Аналогичный подход на Go через библиотеку <code>client_golang</code>:</p><pre><code>import \"github.com/prometheus/client_golang/prometheus\"\nimport \"github.com/prometheus/client_golang/prometheus/promhttp\"\n\nvar requests = prometheus.NewCounter(prometheus.CounterOpts{\n    Name: \"myapp_requests_total\",\n    Help: \"Total requests\",\n})\n\nfunc main() {\n    prometheus.MustRegister(requests)\n    http.Handle(\"/metrics\", promhttp.Handler())\n    http.ListenAndServe(\":8000\", nil)\n}</code></pre><p>Ключевые правила при написании кастомного exporter'а: избегать метрик с высокой кардинальностью (не использовать user_id или request_id как label — это взорвёт объём данных Prometheus), называть метрики с суффиксом единиц измерения (<code>_seconds</code>, <code>_bytes</code>, <code>_total</code> для counters).</p>",
+      "links": [
+        {
+          "title": "Prometheus — Writing Exporters",
+          "url": "https://prometheus.io/docs/instrumenting/writing_exporters/"
+        },
+        {
+          "title": "Prometheus Client Python — GitHub",
+          "url": "https://github.com/prometheus/client_python"
+        },
+        {
+          "title": "Prometheus Client Golang — GitHub",
+          "url": "https://github.com/prometheus/client_golang"
+        },
+        {
+          "title": "Prometheus — Naming conventions для метрик",
+          "url": "https://prometheus.io/docs/practices/naming/"
+        }
+      ]
+    },
+    {
+      "title": "Grafana variables и templating: $datasource, $job, $instance",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>Templating (переменные)</strong> позволяет делать дашборды универсальными и переиспользуемыми, не создавая копию под каждый инстанс/сервис/окружение.</p><p>Типы переменных, создаваемых в <strong>Dashboard settings → Variables</strong>:</p><ul><li><strong>Data source variable</strong> — <code>$datasource</code>, позволяет один и тот же дашборд применять к разным Prometheus-инстансам (например, prod и staging).</li><li><strong>Query variable</strong> — значения подтягиваются PromQL-запросом типа <code>label_values(up, job)</code> — так получают список всех значений метки <code>job</code>, формируя переменную <code>$job</code>.</li><li><strong>Query variable для instance</strong> — <code>label_values(up{job='$job'}, instance)</code> — зависимая переменная <code>$instance</code>, список которой сужается в зависимости от выбранного <code>$job</code> (цепочка зависимостей).</li></ul><p>Использование переменных в панели:</p><pre><code>sum(rate(http_requests_total{job=\"$job\", instance=\"$instance\"}[5m]))</code></pre><p>Дополнительно можно включить опцию <strong>Multi-value</strong> и <strong>Include All option</strong>, чтобы пользователь дашборда мог выбрать сразу несколько значений или все — тогда в запросе значение подставляется как regex через оператор <code>=~</code>: <code>instance=~\"$instance\"</code>.</p><p>Переменные — основа для построения одного «мастер-дашборда», который переиспользуется для десятков сервисов и окружений вместо дублирования JSON.</p>",
+      "links": [
+        {
+          "title": "Grafana — Templates and variables",
+          "url": "https://grafana.com/docs/grafana/latest/dashboards/variables/"
+        },
+        {
+          "title": "Grafana — Add query variable",
+          "url": "https://grafana.com/docs/grafana/latest/dashboards/variables/add-template-variables/"
+        }
+      ]
+    },
+    {
+      "title": "Thanos / Victoria Metrics: long-term storage, global view",
+      "level": "🔴 Senior",
+      "explanation": "<p>Стандартный Prometheus хранит данные локально на диске и плохо масштабируется горизонтально — для мультикластерных инсталляций и долгосрочного хранения (месяцы/годы) используют надстройки.</p><p><strong>Thanos</strong> — набор компонентов, дополняющих Prometheus:</p><ul><li><strong>Sidecar</strong> — запускается рядом с каждым Prometheus, отдаёт данные через gRPC и опционально загружает блоки в object storage (S3/GCS).</li><li><strong>Store Gateway</strong> — читает исторические блоки из object storage для запросов за старые периоды.</li><li><strong>Querier</strong> — единая точка запроса, агрегирующая данные из всех Prometheus (через sidecars) и Store Gateway — обеспечивает <strong>global view</strong> по всем кластерам/регионам.</li><li><strong>Compactor</strong> — сжимает и down-sample'ит старые данные для экономии места.</li></ul><p><strong>Victoria Metrics</strong> — альтернатива, изначально спроектированная как единая time-series база данных с собственным эффективным форматом хранения. Проще в эксплуатации (меньше компонентов, чем у Thanos), совместима с PromQL (и расширенным MetricsQL), поддерживает remote_write из Prometheus:</p><pre><code>remote_write:\n  - url: \"http://victoriametrics:8428/api/v1/write\"</code></pre><table><tr><th>Критерий</th><th>Thanos</th><th>VictoriaMetrics</th></tr><tr><td>Сложность</td><td>Выше (много компонентов)</td><td>Ниже (единый бинарь/кластер)</td></tr><tr><td>Хранение</td><td>Object storage (S3/GCS)</td><td>Собственный формат на диске</td></tr><tr><td>Global view</td><td>Да, через Querier</td><td>Да, через vmselect</td></tr></table><p>Оба решения решают проблему single point of failure и ограниченного объёма локального Prometheus, обеспечивая централизованный долгосрочный мониторинг для крупных инфраструктур.</p>",
+      "links": [
+        {
+          "title": "Thanos — Quick tutorial",
+          "url": "https://thanos.io/tip/thanos/quick-tutorial.md/"
+        },
+        {
+          "title": "Thanos — Architecture overview",
+          "url": "https://thanos.io/tip/thanos/design.md/"
+        },
+        {
+          "title": "VictoriaMetrics — документация",
+          "url": "https://docs.victoriametrics.com/"
+        },
+        {
+          "title": "VictoriaMetrics — FAQ и сравнение решений",
+          "url": "https://docs.victoriametrics.com/faq/"
+        }
+      ]
+    }
+  ],
+  "quiz": [
+    {
+      "q": "Какой из трёх столпов observability отвечает на вопрос «где именно в цепочке микросервисов возникла задержка»?",
+      "options": [
+        "Metrics",
+        "Logs",
+        "Traces",
+        "Alerts"
+      ],
+      "answer": 2,
+      "explain": "Traces показывают путь запроса через все сервисы с временными отметками на каждом этапе, что позволяет локализовать узкое место."
+    },
+    {
+      "q": "Какой тип метрики Prometheus монотонно возрастает и требует функции rate() для анализа скорости изменения?",
+      "options": [
+        "Gauge",
+        "Counter",
+        "Summary",
+        "Histogram"
+      ],
+      "answer": 1,
+      "explain": "Counter только растёт (сбрасываясь при перезапуске), поэтому напрямую использовать его значение бессмысленно — нужен rate() или increase()."
+    },
+    {
+      "q": "Какая функция PromQL вычисляет перцентиль на основе бакетов Histogram?",
+      "options": [
+        "quantile()",
+        "histogram_quantile()",
+        "percentile()",
+        "bucket_quantile()"
+      ],
+      "answer": 1,
+      "explain": "histogram_quantile() принимает уровень квантиля и range vector бакетов гистограммы, вычисляя приближённое значение перцентиля."
+    },
+    {
+      "q": "В конфиге prometheus.yml, какой параметр задаёт частоту опроса целей внутри job?",
+      "options": [
+        "evaluation_interval",
+        "scrape_interval",
+        "poll_rate",
+        "target_interval"
+      ],
+      "answer": 1,
+      "explain": "scrape_interval определяет, как часто Prometheus опрашивает targets; может быть задан глобально или переопределён на уровне job."
+    },
+    {
+      "q": "Что делает inhibit_rules в конфигурации Alertmanager?",
+      "options": [
+        "Отправляет копию алерта в несколько receivers одновременно",
+        "Подавляет менее важные алерты, если уже сработал более критичный по тем же меткам",
+        "Задерживает отправку алерта на заданное время",
+        "Группирует одинаковые алерты в один"
+      ],
+      "answer": 1,
+      "explain": "inhibit_rules снижают шум, подавляя, например, warning-алерты по тому же instance, если уже firing критичный алерт с той же меткой."
+    },
+    {
+      "q": "На каком порту и пути по умолчанию Node Exporter отдаёт метрики?",
+      "options": [
+        "9090/metrics",
+        "9100/metrics",
+        "8080/metrics",
+        "3000/metrics"
+      ],
+      "answer": 1,
+      "explain": "Node Exporter по умолчанию слушает порт 9100 и отдаёт метрики хоста (CPU, память, диск, сеть) по пути /metrics."
+    },
+    {
+      "q": "Какой тип панели Grafana лучше всего подходит для визуализации распределения значений latency histogram во времени?",
+      "options": [
+        "Gauge",
+        "Table",
+        "Heatmap",
+        "Stat"
+      ],
+      "answer": 2,
+      "explain": "Heatmap показывает плотность распределения значений по бакетам во времени, что идеально подходит для histogram-метрик latency."
+    },
+    {
+      "q": "Чем Grafana Unified Alerting отличается от классического Prometheus Alertmanager?",
+      "options": [
+        "Не поддерживает Slack",
+        "Работает только с логами",
+        "Может работать сразу с несколькими типами datasource, а не только с Prometheus",
+        "Не поддерживает группировку алертов"
+      ],
+      "answer": 2,
+      "explain": "Grafana Alerting может строить правила на основе разных datasource (Prometheus, Loki, SQL и др.), в то время как Alertmanager работает только с алертами от Prometheus."
+    },
+    {
+      "q": "Какой механизм Service Discovery Prometheus используют для автоматического поиска подов в Kubernetes?",
+      "options": [
+        "file_sd_configs",
+        "ec2_sd_configs",
+        "kubernetes_sd_configs",
+        "consul_sd_configs"
+      ],
+      "answer": 2,
+      "explain": "kubernetes_sd_configs позволяет Prometheus обращаться к Kubernetes API и находить поды/сервисы/endpoints, обычно в сочетании с relabel_configs."
+    },
+    {
+      "q": "Для чего используются recording rules в Prometheus?",
+      "options": [
+        "Для отправки алертов в Slack",
+        "Для предварительного вычисления и сохранения результата тяжёлых PromQL-выражений как новой метрики",
+        "Для настройки TLS между Prometheus и targets",
+        "Для ограничения количества scrape targets"
+      ],
+      "answer": 1,
+      "explain": "Recording rules периодически вычисляют выражение и сохраняют результат как новую метрику, ускоряя частые тяжёлые запросы в дашбордах и alert rules."
+    },
+    {
+      "q": "Какая практика считается анти-паттерном при написании кастомного Prometheus exporter'а?",
+      "options": [
+        "Использовать суффикс _total для counters",
+        "Использовать user_id или request_id как значение label",
+        "Отдавать метрики по HTTP на /metrics",
+        "Регистрировать метрики через MustRegister"
+      ],
+      "answer": 1,
+      "explain": "Использование высококардинальных значений (user_id, request_id) как label приводит к взрывному росту количества временных рядов и деградации Prometheus."
+    },
+    {
+      "q": "Какой компонент Thanos обеспечивает единую точку запроса (global view) по данным из нескольких Prometheus-инстансов?",
+      "options": [
+        "Sidecar",
+        "Compactor",
+        "Store Gateway",
+        "Querier"
+      ],
+      "answer": 3,
+      "explain": "Querier агрегирует данные, получаемые через Sidecar от разных Prometheus и через Store Gateway из object storage, предоставляя единый интерфейс запросов."
+    }
+  ]
 }

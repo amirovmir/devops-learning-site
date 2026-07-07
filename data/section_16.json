@@ -1,131 +1,225 @@
 {
- "phase": "Phase 5 — SRE Practices",
- "section": "📈 Performance & Capacity",
- "topics": [
-  {
-   "title": "Load testing: k6 (JS скрипты), Locust (Python), wrk / hey",
-   "level": "🟡 Middle",
-   "explanation": "<p>Нагрузочное тестирование позволяет понять, как система ведёт себя под возрастающей нагрузкой, до того как это произойдёт в продакшене. Существует несколько популярных инструментов, каждый со своей философией.</p><p><strong>k6</strong> — современный инструмент от Grafana Labs, тесты пишутся на JavaScript, легко интегрируется в CI/CD, выводит метрики прямо в Prometheus/Grafana:</p><pre><code>import http from 'k6/http';\nimport { sleep } from 'k6';\n\nexport const options = {\n  vus: 50,\n  duration: '30s',\n};\n\nexport default function () {\n  http.get('https://api.example.com/users');\n  sleep(1);\n}</code></pre><p><strong>Locust</strong> — Python-фреймворк, тесты описываются классами, есть встроенный веб-UI для наблюдения в реальном времени:</p><pre><code>from locust import HttpUser, task\n\nclass ApiUser(HttpUser):\n    @task\n    def get_users(self):\n        self.client.get('/users')</code></pre><p><strong>wrk</strong> и <strong>hey</strong> — легковесные CLI-утилиты для быстрых замеров без написания скриптов:</p><pre><code>wrk -t4 -c100 -d30s https://api.example.com/\nhey -z 30s -c 100 https://api.example.com/</code></pre><table><tr><th>Инструмент</th><th>Язык</th><th>Плюсы</th></tr><tr><td>k6</td><td>JS</td><td>CI/CD, метрики, cloud</td></tr><tr><td>Locust</td><td>Python</td><td>Веб-UI, гибкость</td></tr><tr><td>wrk/hey</td><td>CLI</td><td>Простота, скорость запуска</td></tr></table><p>Перед прогоном важно определить целевую нагрузку (RPS, число пользователей) на основе реальных данных production-трафика, иначе результаты будут бесполезны.</p>"
-  },
-  {
-   "title": "Интерпретация результатов: p50/p95/p99 latency, throughput, errors",
-   "level": "🟡 Middle",
-   "explanation": "<p>Средняя (average) latency почти всегда лжёт: один медленный запрос на фоне тысячи быстрых легко «размывается» средним значением. Поэтому в SRE используют <strong>перцентили</strong>.</p><ul><li><code>p50</code> (медиана) — типичный опыт половины пользователей.</li><li><code>p95</code> — 95% запросов быстрее этого значения; хорошо показывает «средне-плохой» случай.</li><li><code>p99</code> — критичен для highload-сервисов: даже 1% медленных запросов при миллионе запросов в день — это 10 000 недовольных пользователей.</li></ul><p>Пример вывода k6:</p><pre><code>http_req_duration..: avg=120ms p(50)=95ms p(95)=310ms p(99)=890ms</code></pre><p><strong>Throughput</strong> (пропускная способность) — сколько запросов система обрабатывает в секунду (RPS/QPS). Важно смотреть throughput вместе с latency: при росте нагрузки throughput может расти, а latency резко «взлетает» — это сигнал приближения к пределу насыщения (saturation).</p><p><strong>Error rate</strong> — доля неуспешных запросов (5xx, таймауты). Golden rule нагрузочного теста: если error rate растёт при увеличении RPS, вы нашли точку деградации системы.</p><table><tr><th>Метрика</th><th>Что показывает</th></tr><tr><td>p50</td><td>Типичный опыт</td></tr><tr><td>p99</td><td>Хвостовые задержки</td></tr><tr><td>Throughput</td><td>RPS, которые система выдерживает</td></tr><tr><td>Error rate</td><td>Процент отказов</td></tr></table><p>Результаты теста стоит сравнивать с заранее определённым SLO, а не оценивать «на глаз».</p>"
-  },
-  {
-   "title": "Профилирование: CPU flamegraph (perf, py-spy), memory leak поиск",
-   "level": "🟡 Middle",
-   "explanation": "<p>Когда нагрузочный тест показал деградацию, следующий шаг — понять <em>где именно</em> тратится время и память. Для этого используется профилирование.</p><p><strong>CPU-профилирование</strong> на Linux чаще всего делают через <code>perf</code>:</p><pre><code>perf record -F 99 -p &lt;PID&gt; -g -- sleep 30\nperf script | stackcollapse-perf.pl | flamegraph.pl &gt; flame.svg</code></pre><p>Результат — <strong>flamegraph</strong>, визуализация стека вызовов, где ширина блока пропорциональна времени CPU. Широкие «плато» на графике — кандидаты на оптимизацию.</p><p>Для Python-приложений удобнее <code>py-spy</code>, работающий без изменения кода и остановки процесса:</p><pre><code>py-spy record -o profile.svg --pid 12345\npy-spy dump --pid 12345</code></pre><p><strong>Поиск memory leak</strong> — отдельная задача. Признаки: постоянный рост RSS без стабилизации, частые OOMKilled в Kubernetes. Инструменты:</p><ul><li>Python: <code>tracemalloc</code>, <code>memory_profiler</code></li><li>Go: <code>pprof</code> (<code>go tool pprof heap</code>)</li><li>Java: heap dump + Eclipse MAT</li></ul><p>Практика: снимайте снапшот памяти через равные интервалы (например каждый час) и сравнивайте — растущие объекты видны сразу в diff.</p>"
-  },
-  {
-   "title": "Auto-scaling: HPA, VPA, KEDA, Cluster Autoscaler — когда что",
-   "level": "🟡 Middle",
-   "explanation": "<p>В Kubernetes есть несколько уровней автомасштабирования, и важно понимать разницу между ними, чтобы не настроить их «в конфликт» друг с другом.</p><p><strong>HPA (Horizontal Pod Autoscaler)</strong> — увеличивает/уменьшает число реплик Pod по метрикам CPU/memory или custom metrics:</p><pre><code>kubectl autoscale deployment app --cpu-percent=70 --min=2 --max=10</code></pre><p><strong>VPA (Vertical Pod Autoscaler)</strong> — подстраивает <code>requests</code>/<code>limits</code> контейнера, а не число реплик. Хорош для приложений, которые нельзя горизонтально масштабировать (например, stateful).</p><p><strong>KEDA</strong> — масштабирование по событийным метрикам вне стандартных CPU/memory: длина очереди Kafka, RabbitMQ, количество сообщений в SQS. Может масштабировать даже до нуля реплик.</p><p><strong>Cluster Autoscaler</strong> — работает на уровне узлов кластера: добавляет/удаляет ноды, когда Pod'ы не помещаются или узлы простаивают.</p><table><tr><th>Инструмент</th><th>Масштабирует</th><th>Когда использовать</th></tr><tr><td>HPA</td><td>Реплики Pod</td><td>Stateless, CPU/memory нагрузка</td></tr><tr><td>VPA</td><td>Requests/limits</td><td>Один инстанс, переменная нагрузка</td></tr><tr><td>KEDA</td><td>Реплики по событиям</td><td>Очереди, event-driven</td></tr><tr><td>Cluster Autoscaler</td><td>Ноды</td><td>Недостаточно capacity в кластере</td></tr></table><p><strong>Важно:</strong> HPA и VPA нельзя одновременно применять к CPU/memory одного Deployment — они будут конфликтовать.</p>"
-  },
-  {
-   "title": "Capacity planning: прогнозирование роста, headroom planning",
-   "level": "🟡 Middle",
-   "explanation": "<p>Capacity planning — процесс прогнозирования, сколько ресурсов (CPU, memory, диск, сеть, инстансы БД) понадобится системе в будущем, чтобы избежать как перегрузки, так и переплаты за неиспользуемые ресурсы.</p><p>Базовый подход:</p><ul><li>Собрать исторические тренды использования (Prometheus + Grafana за 3-6 месяцев).</li><li>Определить тип роста: линейный, сезонный (например, пик продаж перед праздниками), взрывной (маркетинговая кампания).</li><li>Рассчитать <strong>headroom</strong> — запас мощности сверх текущей пиковой нагрузки, обычно 20-40%, чтобы пережить неожиданные всплески без деградации.</li></ul><p>Пример простого расчёта headroom:</p><pre><code># текущий пик CPU: 65%\n# целевой headroom: 30%\n# порог для action: 65% / (1 - 0.30) = 92.8% от capacity\n\n# если рост 5%/месяц, узнаём когда достигнем порога:\n# months = log(92.8/65) / log(1.05) ~= 7.3 месяца</code></pre><p>Также важно учитывать <strong>lead time</strong> закупки/провижининга: если новый узел на выделенном hardware ставится 2 месяца, планирование должно начинаться заранее — облачные среды с автоскейлингом дают гораздо больше гибкости, чем bare metal.</p><table><tr><th>Тип роста</th><th>Пример</th><th>Метод прогноза</th></tr><tr><td>Линейный</td><td>Органический рост пользователей</td><td>Линейная регрессия</td></tr><tr><td>Сезонный</td><td>Black Friday</td><td>Исторические пики + запас</td></tr><tr><td>Взрывной</td><td>Вирусный контент</td><td>Auto-scaling + rate limiting</td></tr></table>"
-  },
-  {
-   "title": "sysctl tuning: net.core, net.ipv4, vm.swappiness для production",
-   "level": "🔴 Senior",
-   "explanation": "<p>Настройки ядра Linux по умолчанию рассчитаны на универсальные сценарии и часто становятся бутылочным горлышком для высоконагруженных production-серверов (веб, БД, балансировщики).</p><p><strong>Сетевые параметры</strong> (<code>net.core</code>, <code>net.ipv4</code>) — влияют на пропускную способность и число одновременных соединений:</p><pre><code># /etc/sysctl.conf\nnet.core.somaxconn = 65535          # длина очереди принятых соединений\nnet.core.netdev_max_backlog = 5000  # очередь пакетов на входе NIC\nnet.ipv4.tcp_max_syn_backlog = 8192 # очередь SYN-запросов\nnet.ipv4.tcp_tw_reuse = 1           # переиспользование TIME_WAIT сокетов\nnet.ipv4.ip_local_port_range = 1024 65535</code></pre><p>Применить без перезагрузки:</p><pre><code>sysctl -p /etc/sysctl.conf\nsysctl net.core.somaxconn</code></pre><p><strong>vm.swappiness</strong> определяет, насколько агрессивно ядро выгружает страницы памяти в swap (0-100). Для серверов баз данных и Kubernetes-нод рекомендуется низкое значение, чтобы избежать неожиданных задержек:</p><pre><code>vm.swappiness = 10   # вместо дефолтных 60</code></pre><p>Для highload веб-серверов также часто увеличивают лимит открытых файловых дескрипторов (<code>fs.file-max</code>) и число inotify watches для контейнерных окружений.</p><p><strong>Внимание:</strong> изменения нужно тестировать на staging — агрессивный tuning без понимания нагрузки может замаскировать реальные проблемы приложения.</p>"
-  },
-  {
-   "title": "Distributed tracing: Jaeger, Tempo — spans, traces, instrumentation",
-   "level": "🔴 Senior",
-   "explanation": "<p>В микросервисной архитектуре один пользовательский запрос может пройти через десятки сервисов. Метрики и логи по отдельности не отвечают на вопрос «где именно застрял именно этот запрос» — для этого нужен <strong>distributed tracing</strong>.</p><p>Базовые понятия:</p><ul><li><strong>Trace</strong> — полный путь одного запроса через все сервисы, идентифицируется <code>trace_id</code>.</li><li><strong>Span</strong> — одна операция внутри trace (например, вызов БД или HTTP-запрос к другому сервису), имеет начало, конец и родительский span.</li><li><strong>Instrumentation</strong> — добавление кода (обычно через OpenTelemetry SDK) для генерации spans в приложении.</li></ul><p>Пример инструментирования на Python с OpenTelemetry:</p><pre><code>from opentelemetry import trace\n\ntracer = trace.get_tracer('my-service')\n\nwith tracer.start_as_current_span('process_order'):\n    with tracer.start_as_current_span('db_query'):\n        result = db.query(...)</code></pre><p><strong>Jaeger</strong> — зрелое решение от CNCF, своё UI, хранилище (Elasticsearch/Cassandra), поддержка sampling-стратегий.</p><p><strong>Grafana Tempo</strong> — более лёгкий backend, хранит traces в объектном хранилище (S3/GCS), тесно интегрирован с Grafana и Loki/Prometheus (exemplars — переход из метрики прямо в trace).</p><table><tr><th></th><th>Jaeger</th><th>Tempo</th></tr><tr><td>Хранилище</td><td>ES/Cassandra</td><td>Object storage (S3)</td></tr><tr><td>UI</td><td>Собственный</td><td>Grafana</td></tr><tr><td>Стоимость хранения</td><td>Выше</td><td>Ниже</td></tr></table><p>На production критично настроить <strong>sampling</strong> (например 1-10% трейсов), иначе объём данных и нагрузка на backend станут неуправляемыми.</p>"
-  }
- ],
- "quiz": [
-  {
-   "q": "Какой инструмент нагрузочного тестирования позволяет писать сценарии на JavaScript и легко интегрируется в CI/CD с выводом метрик в Grafana?",
-   "options": [
-    "Locust",
-    "k6",
-    "wrk",
-    "tcpdump"
-   ],
-   "answer": 1,
-   "explain": "k6 от Grafana Labs использует JS для описания сценариев и нативно интегрируется с экосистемой Grafana/Prometheus."
-  },
-  {
-   "q": "Почему в SRE предпочитают перцентили (p95, p99) вместо средней (average) latency?",
-   "options": [
-    "Перцентили проще считать",
-    "Среднее значение маскирует хвостовые задержки, влияющие на часть пользователей",
-    "Перцентили не зависят от нагрузки",
-    "Среднее значение требует больше данных"
-   ],
-   "answer": 1,
-   "explain": "Средняя latency 'размывается' быстрыми запросами и не показывает, что часть пользователей (например 1% при p99) получает значительно худший опыт."
-  },
-  {
-   "q": "Что показывает flamegraph, полученный с помощью perf?",
-   "options": [
-    "Использование памяти по времени",
-    "Стек вызовов CPU, где ширина блока пропорциональна затраченному времени",
-    "Сетевой трафик приложения",
-    "Количество открытых файловых дескрипторов"
-   ],
-   "answer": 1,
-   "explain": "Flamegraph визуализирует call stack: широкие 'плато' соответствуют функциям, где тратится больше всего процессорного времени."
-  },
-  {
-   "q": "Какой компонент автомасштабирования Kubernetes может масштабировать Deployment до нуля реплик на основе длины очереди Kafka или RabbitMQ?",
-   "options": [
-    "HPA",
-    "VPA",
-    "KEDA",
-    "Cluster Autoscaler"
-   ],
-   "answer": 2,
-   "explain": "KEDA (Kubernetes Event-driven Autoscaling) поддерживает масштабирование по внешним событийным метрикам, включая scale-to-zero."
-  },
-  {
-   "q": "Почему HPA и VPA не рекомендуется применять одновременно к CPU/memory одного и того же Deployment?",
-   "options": [
-    "Это запрещено лицензией Kubernetes",
-    "Они требуют разных версий kubectl",
-    "Они могут конфликтовать, одновременно меняя число реплик и размер ресурсов по одной метрике",
-    "VPA работает только в GKE"
-   ],
-   "answer": 2,
-   "explain": "HPA масштабирует количество реплик, а VPA — размер ресурсов; при использовании по одинаковым метрикам (CPU/memory) они могут создавать колебания и конфликтовать друг с другом."
-  },
-  {
-   "q": "Что такое 'headroom' в контексте capacity planning?",
-   "options": [
-    "Максимальное время отклика сервиса",
-    "Запас мощности сверх текущей пиковой нагрузки для покрытия неожиданных всплесков",
-    "Разница между p50 и p99 latency",
-    "Время развертывания нового сервера"
-   ],
-   "answer": 1,
-   "explain": "Headroom — это резерв capacity (обычно 20-40% сверх пикового использования), позволяющий системе пережить неожиданный рост нагрузки без деградации."
-  },
-  {
-   "q": "Что делает параметр vm.swappiness=10 по сравнению со значением по умолчанию 60?",
-   "options": [
-    "Увеличивает агрессивность выгрузки страниц памяти в swap",
-    "Уменьшает агрессивность использования swap, снижая риск неожиданных задержек",
-    "Полностью отключает swap",
-    "Увеличивает размер файла подкачки"
-   ],
-   "answer": 1,
-   "explain": "Более низкое значение vm.swappiness делает ядро менее склонным выгружать страницы памяти в swap, что снижает риск latency-спайков на серверах БД и в Kubernetes-нодах."
-  },
-  {
-   "q": "Что представляет собой 'span' в контексте distributed tracing?",
-   "options": [
-    "Уникальный идентификатор всего запроса через все сервисы",
-    "Одна операция внутри trace с началом, концом и родительским span",
-    "Файл конфигурации трейсинга",
-    "Метрика пропускной способности сервиса"
-   ],
-   "answer": 1,
-   "explain": "Span — единица работы внутри trace (например, вызов БД или запрос к другому сервису), связанная с родительским span и объединённая общим trace_id."
-  }
- ]
+  "phase": "Phase 5 — SRE Practices",
+  "section": "📈 Performance & Capacity",
+  "topics": [
+    {
+      "title": "Load testing: k6 (JS скрипты), Locust (Python), wrk / hey",
+      "level": "🟡 Middle",
+      "explanation": "<p>Нагрузочное тестирование позволяет понять, как система ведёт себя под возрастающей нагрузкой, до того как это произойдёт в продакшене. Существует несколько популярных инструментов, каждый со своей философией.</p><p><strong>k6</strong> — современный инструмент от Grafana Labs, тесты пишутся на JavaScript, легко интегрируется в CI/CD, выводит метрики прямо в Prometheus/Grafana:</p><pre><code>import http from 'k6/http';\nimport { sleep } from 'k6';\n\nexport const options = {\n  vus: 50,\n  duration: '30s',\n};\n\nexport default function () {\n  http.get('https://api.example.com/users');\n  sleep(1);\n}</code></pre><p><strong>Locust</strong> — Python-фреймворк, тесты описываются классами, есть встроенный веб-UI для наблюдения в реальном времени:</p><pre><code>from locust import HttpUser, task\n\nclass ApiUser(HttpUser):\n    @task\n    def get_users(self):\n        self.client.get('/users')</code></pre><p><strong>wrk</strong> и <strong>hey</strong> — легковесные CLI-утилиты для быстрых замеров без написания скриптов:</p><pre><code>wrk -t4 -c100 -d30s https://api.example.com/\nhey -z 30s -c 100 https://api.example.com/</code></pre><table><tr><th>Инструмент</th><th>Язык</th><th>Плюсы</th></tr><tr><td>k6</td><td>JS</td><td>CI/CD, метрики, cloud</td></tr><tr><td>Locust</td><td>Python</td><td>Веб-UI, гибкость</td></tr><tr><td>wrk/hey</td><td>CLI</td><td>Простота, скорость запуска</td></tr></table><p>Перед прогоном важно определить целевую нагрузку (RPS, число пользователей) на основе реальных данных production-трафика, иначе результаты будут бесполезны.</p>",
+      "links": [
+        {
+          "title": "Grafana k6 Docs — официальная документация и примеры скриптов",
+          "url": "https://grafana.com/docs/k6/latest/"
+        },
+        {
+          "title": "Locust Docs: Your first test — быстрый старт с Python-фреймворком",
+          "url": "https://docs.locust.io/en/stable/quickstart.html"
+        },
+        {
+          "title": "wrk (GitHub) — исходники и описание CLI-утилиты для HTTP-бенчмаркинга",
+          "url": "https://github.com/wg/wrk"
+        }
+      ]
+    },
+    {
+      "title": "Интерпретация результатов: p50/p95/p99 latency, throughput, errors",
+      "level": "🟡 Middle",
+      "explanation": "<p>Средняя (average) latency почти всегда лжёт: один медленный запрос на фоне тысячи быстрых легко «размывается» средним значением. Поэтому в SRE используют <strong>перцентили</strong>.</p><ul><li><code>p50</code> (медиана) — типичный опыт половины пользователей.</li><li><code>p95</code> — 95% запросов быстрее этого значения; хорошо показывает «средне-плохой» случай.</li><li><code>p99</code> — критичен для highload-сервисов: даже 1% медленных запросов при миллионе запросов в день — это 10 000 недовольных пользователей.</li></ul><p>Пример вывода k6:</p><pre><code>http_req_duration..: avg=120ms p(50)=95ms p(95)=310ms p(99)=890ms</code></pre><p><strong>Throughput</strong> (пропускная способность) — сколько запросов система обрабатывает в секунду (RPS/QPS). Важно смотреть throughput вместе с latency: при росте нагрузки throughput может расти, а latency резко «взлетает» — это сигнал приближения к пределу насыщения (saturation).</p><p><strong>Error rate</strong> — доля неуспешных запросов (5xx, таймауты). Golden rule нагрузочного теста: если error rate растёт при увеличении RPS, вы нашли точку деградации системы.</p><table><tr><th>Метрика</th><th>Что показывает</th></tr><tr><td>p50</td><td>Типичный опыт</td></tr><tr><td>p99</td><td>Хвостовые задержки</td></tr><tr><td>Throughput</td><td>RPS, которые система выдерживает</td></tr><tr><td>Error rate</td><td>Процент отказов</td></tr></table><p>Результаты теста стоит сравнивать с заранее определённым SLO, а не оценивать «на глаз».</p>",
+      "links": [
+        {
+          "title": "Grafana k6 Docs: Thresholds — задание pass/fail критериев по перцентилям",
+          "url": "https://grafana.com/docs/k6/latest/using-k6/thresholds/"
+        },
+        {
+          "title": "k6 Docs: Analyze results — разбор p50/p95/p99, throughput и error rate",
+          "url": "https://k6.io/docs/examples/tutorials/get-started-with-k6/analyze-results/"
+        },
+        {
+          "title": "Google SRE Book: Service Level Objectives — как перцентили связаны со SLO/SLI",
+          "url": "https://sre.google/sre-book/service-level-objectives/"
+        }
+      ]
+    },
+    {
+      "title": "Профилирование: CPU flamegraph (perf, py-spy), memory leak поиск",
+      "level": "🟡 Middle",
+      "explanation": "<p>Когда нагрузочный тест показал деградацию, следующий шаг — понять <em>где именно</em> тратится время и память. Для этого используется профилирование.</p><p><strong>CPU-профилирование</strong> на Linux чаще всего делают через <code>perf</code>:</p><pre><code>perf record -F 99 -p &lt;PID&gt; -g -- sleep 30\nperf script | stackcollapse-perf.pl | flamegraph.pl &gt; flame.svg</code></pre><p>Результат — <strong>flamegraph</strong>, визуализация стека вызовов, где ширина блока пропорциональна времени CPU. Широкие «плато» на графике — кандидаты на оптимизацию.</p><p>Для Python-приложений удобнее <code>py-spy</code>, работающий без изменения кода и остановки процесса:</p><pre><code>py-spy record -o profile.svg --pid 12345\npy-spy dump --pid 12345</code></pre><p><strong>Поиск memory leak</strong> — отдельная задача. Признаки: постоянный рост RSS без стабилизации, частые OOMKilled в Kubernetes. Инструменты:</p><ul><li>Python: <code>tracemalloc</code>, <code>memory_profiler</code></li><li>Go: <code>pprof</code> (<code>go tool pprof heap</code>)</li><li>Java: heap dump + Eclipse MAT</li></ul><p>Практика: снимайте снапшот памяти через равные интервалы (например каждый час) и сравнивайте — растущие объекты видны сразу в diff.</p>",
+      "links": [
+        {
+          "title": "Brendan Gregg: Flame Graphs — канонический источник по визуализации профилей",
+          "url": "https://www.brendangregg.com/flamegraphs.html"
+        },
+        {
+          "title": "Brendan Gregg: CPU Flame Graphs — практика построения через perf",
+          "url": "https://www.brendangregg.com/FlameGraphs/cpuflamegraphs.html"
+        },
+        {
+          "title": "py-spy (GitHub) — сэмплирующий профилировщик для Python без изменения кода",
+          "url": "https://github.com/benfred/py-spy"
+        },
+        {
+          "title": "Brendan Gregg: Memory Leak (and Growth) Flame Graphs — поиск утечек памяти",
+          "url": "https://www.brendangregg.com/FlameGraphs/memoryflamegraphs.html"
+        }
+      ]
+    },
+    {
+      "title": "Auto-scaling: HPA, VPA, KEDA, Cluster Autoscaler — когда что",
+      "level": "🟡 Middle",
+      "explanation": "<p>В Kubernetes есть несколько уровней автомасштабирования, и важно понимать разницу между ними, чтобы не настроить их «в конфликт» друг с другом.</p><p><strong>HPA (Horizontal Pod Autoscaler)</strong> — увеличивает/уменьшает число реплик Pod по метрикам CPU/memory или custom metrics:</p><pre><code>kubectl autoscale deployment app --cpu-percent=70 --min=2 --max=10</code></pre><p><strong>VPA (Vertical Pod Autoscaler)</strong> — подстраивает <code>requests</code>/<code>limits</code> контейнера, а не число реплик. Хорош для приложений, которые нельзя горизонтально масштабировать (например, stateful).</p><p><strong>KEDA</strong> — масштабирование по событийным метрикам вне стандартных CPU/memory: длина очереди Kafka, RabbitMQ, количество сообщений в SQS. Может масштабировать даже до нуля реплик.</p><p><strong>Cluster Autoscaler</strong> — работает на уровне узлов кластера: добавляет/удаляет ноды, когда Pod'ы не помещаются или узлы простаивают.</p><table><tr><th>Инструмент</th><th>Масштабирует</th><th>Когда использовать</th></tr><tr><td>HPA</td><td>Реплики Pod</td><td>Stateless, CPU/memory нагрузка</td></tr><tr><td>VPA</td><td>Requests/limits</td><td>Один инстанс, переменная нагрузка</td></tr><tr><td>KEDA</td><td>Реплики по событиям</td><td>Очереди, event-driven</td></tr><tr><td>Cluster Autoscaler</td><td>Ноды</td><td>Недостаточно capacity в кластере</td></tr></table><p><strong>Важно:</strong> HPA и VPA нельзя одновременно применять к CPU/memory одного Deployment — они будут конфликтовать.</p>",
+      "links": [
+        {
+          "title": "Kubernetes Docs: Horizontal Pod Autoscaling — официальное описание HPA",
+          "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/"
+        },
+        {
+          "title": "KEDA Docs: Scalers — каталог событийных источников для автоскейлинга",
+          "url": "https://keda.sh/docs/2.20/scalers/"
+        },
+        {
+          "title": "Cluster Autoscaler (GitHub) — официальный репозиторий и FAQ по масштабированию нод",
+          "url": "https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler"
+        }
+      ]
+    },
+    {
+      "title": "Capacity planning: прогнозирование роста, headroom planning",
+      "level": "🟡 Middle",
+      "explanation": "<p>Capacity planning — процесс прогнозирования, сколько ресурсов (CPU, memory, диск, сеть, инстансы БД) понадобится системе в будущем, чтобы избежать как перегрузки, так и переплаты за неиспользуемые ресурсы.</p><p>Базовый подход:</p><ul><li>Собрать исторические тренды использования (Prometheus + Grafana за 3-6 месяцев).</li><li>Определить тип роста: линейный, сезонный (например, пик продаж перед праздниками), взрывной (маркетинговая кампания).</li><li>Рассчитать <strong>headroom</strong> — запас мощности сверх текущей пиковой нагрузки, обычно 20-40%, чтобы пережить неожиданные всплески без деградации.</li></ul><p>Пример простого расчёта headroom:</p><pre><code># текущий пик CPU: 65%\n# целевой headroom: 30%\n# порог для action: 65% / (1 - 0.30) = 92.8% от capacity\n\n# если рост 5%/месяц, узнаём когда достигнем порога:\n# months = log(92.8/65) / log(1.05) ~= 7.3 месяца</code></pre><p>Также важно учитывать <strong>lead time</strong> закупки/провижининга: если новый узел на выделенном hardware ставится 2 месяца, планирование должно начинаться заранее — облачные среды с автоскейлингом дают гораздо больше гибкости, чем bare metal.</p><table><tr><th>Тип роста</th><th>Пример</th><th>Метод прогноза</th></tr><tr><td>Линейный</td><td>Органический рост пользователей</td><td>Линейная регрессия</td></tr><tr><td>Сезонный</td><td>Black Friday</td><td>Исторические пики + запас</td></tr><tr><td>Взрывной</td><td>Вирусный контент</td><td>Auto-scaling + rate limiting</td></tr></table>",
+      "links": [
+        {
+          "title": "Google SRE Book: Software Engineering in SRE — кейс Auxon и intent-based capacity planning",
+          "url": "https://sre.google/sre-book/software-engineering-in-sre/"
+        },
+        {
+          "title": "Google SRE Workbook: Non-Abstract Large System Design — планирование мощностей на практике",
+          "url": "https://sre.google/workbook/non-abstract-design/"
+        }
+      ]
+    },
+    {
+      "title": "sysctl tuning: net.core, net.ipv4, vm.swappiness для production",
+      "level": "🔴 Senior",
+      "explanation": "<p>Настройки ядра Linux по умолчанию рассчитаны на универсальные сценарии и часто становятся бутылочным горлышком для высоконагруженных production-серверов (веб, БД, балансировщики).</p><p><strong>Сетевые параметры</strong> (<code>net.core</code>, <code>net.ipv4</code>) — влияют на пропускную способность и число одновременных соединений:</p><pre><code># /etc/sysctl.conf\nnet.core.somaxconn = 65535          # длина очереди принятых соединений\nnet.core.netdev_max_backlog = 5000  # очередь пакетов на входе NIC\nnet.ipv4.tcp_max_syn_backlog = 8192 # очередь SYN-запросов\nnet.ipv4.tcp_tw_reuse = 1           # переиспользование TIME_WAIT сокетов\nnet.ipv4.ip_local_port_range = 1024 65535</code></pre><p>Применить без перезагрузки:</p><pre><code>sysctl -p /etc/sysctl.conf\nsysctl net.core.somaxconn</code></pre><p><strong>vm.swappiness</strong> определяет, насколько агрессивно ядро выгружает страницы памяти в swap (0-100). Для серверов баз данных и Kubernetes-нод рекомендуется низкое значение, чтобы избежать неожиданных задержек:</p><pre><code>vm.swappiness = 10   # вместо дефолтных 60</code></pre><p>Для highload веб-серверов также часто увеличивают лимит открытых файловых дескрипторов (<code>fs.file-max</code>) и число inotify watches для контейнерных окружений.</p><p><strong>Внимание:</strong> изменения нужно тестировать на staging — агрессивный tuning без понимания нагрузки может замаскировать реальные проблемы приложения.</p>",
+      "links": [
+        {
+          "title": "Linux Kernel Docs: IP Sysctl — полный справочник по net.ipv4/net.core параметрам",
+          "url": "https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt"
+        },
+        {
+          "title": "Red Hat Performance Tuning Guide — рекомендации по vm.swappiness и сетевому тюнингу",
+          "url": "https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/performance_tuning_guide/index"
+        }
+      ]
+    },
+    {
+      "title": "Distributed tracing: Jaeger, Tempo — spans, traces, instrumentation",
+      "level": "🔴 Senior",
+      "explanation": "<p>В микросервисной архитектуре один пользовательский запрос может пройти через десятки сервисов. Метрики и логи по отдельности не отвечают на вопрос «где именно застрял именно этот запрос» — для этого нужен <strong>distributed tracing</strong>.</p><p>Базовые понятия:</p><ul><li><strong>Trace</strong> — полный путь одного запроса через все сервисы, идентифицируется <code>trace_id</code>.</li><li><strong>Span</strong> — одна операция внутри trace (например, вызов БД или HTTP-запрос к другому сервису), имеет начало, конец и родительский span.</li><li><strong>Instrumentation</strong> — добавление кода (обычно через OpenTelemetry SDK) для генерации spans в приложении.</li></ul><p>Пример инструментирования на Python с OpenTelemetry:</p><pre><code>from opentelemetry import trace\n\ntracer = trace.get_tracer('my-service')\n\nwith tracer.start_as_current_span('process_order'):\n    with tracer.start_as_current_span('db_query'):\n        result = db.query(...)</code></pre><p><strong>Jaeger</strong> — зрелое решение от CNCF, своё UI, хранилище (Elasticsearch/Cassandra), поддержка sampling-стратегий.</p><p><strong>Grafana Tempo</strong> — более лёгкий backend, хранит traces в объектном хранилище (S3/GCS), тесно интегрирован с Grafana и Loki/Prometheus (exemplars — переход из метрики прямо в trace).</p><table><tr><th></th><th>Jaeger</th><th>Tempo</th></tr><tr><td>Хранилище</td><td>ES/Cassandra</td><td>Object storage (S3)</td></tr><tr><td>UI</td><td>Собственный</td><td>Grafana</td></tr><tr><td>Стоимость хранения</td><td>Выше</td><td>Ниже</td></tr></table><p>На production критично настроить <strong>sampling</strong> (например 1-10% трейсов), иначе объём данных и нагрузка на backend станут неуправляемыми.</p>",
+      "links": [
+        {
+          "title": "Jaeger Docs: Architecture — компоненты и модель данных трейсинга",
+          "url": "https://www.jaegertracing.io/docs/1.76/architecture/"
+        },
+        {
+          "title": "Grafana Tempo Docs: Introduction — архитектура и хранение трейсов в object storage",
+          "url": "https://grafana.com/docs/tempo/latest/introduction/"
+        },
+        {
+          "title": "OpenTelemetry Docs — стандарт инструментирования приложений spans/traces",
+          "url": "https://opentelemetry.io/docs/"
+        }
+      ]
+    }
+  ],
+  "quiz": [
+    {
+      "q": "Какой инструмент нагрузочного тестирования позволяет писать сценарии на JavaScript и легко интегрируется в CI/CD с выводом метрик в Grafana?",
+      "options": [
+        "Locust",
+        "k6",
+        "wrk",
+        "tcpdump"
+      ],
+      "answer": 1,
+      "explain": "k6 от Grafana Labs использует JS для описания сценариев и нативно интегрируется с экосистемой Grafana/Prometheus."
+    },
+    {
+      "q": "Почему в SRE предпочитают перцентили (p95, p99) вместо средней (average) latency?",
+      "options": [
+        "Перцентили проще считать",
+        "Среднее значение маскирует хвостовые задержки, влияющие на часть пользователей",
+        "Перцентили не зависят от нагрузки",
+        "Среднее значение требует больше данных"
+      ],
+      "answer": 1,
+      "explain": "Средняя latency 'размывается' быстрыми запросами и не показывает, что часть пользователей (например 1% при p99) получает значительно худший опыт."
+    },
+    {
+      "q": "Что показывает flamegraph, полученный с помощью perf?",
+      "options": [
+        "Использование памяти по времени",
+        "Стек вызовов CPU, где ширина блока пропорциональна затраченному времени",
+        "Сетевой трафик приложения",
+        "Количество открытых файловых дескрипторов"
+      ],
+      "answer": 1,
+      "explain": "Flamegraph визуализирует call stack: широкие 'плато' соответствуют функциям, где тратится больше всего процессорного времени."
+    },
+    {
+      "q": "Какой компонент автомасштабирования Kubernetes может масштабировать Deployment до нуля реплик на основе длины очереди Kafka или RabbitMQ?",
+      "options": [
+        "HPA",
+        "VPA",
+        "KEDA",
+        "Cluster Autoscaler"
+      ],
+      "answer": 2,
+      "explain": "KEDA (Kubernetes Event-driven Autoscaling) поддерживает масштабирование по внешним событийным метрикам, включая scale-to-zero."
+    },
+    {
+      "q": "Почему HPA и VPA не рекомендуется применять одновременно к CPU/memory одного и того же Deployment?",
+      "options": [
+        "Это запрещено лицензией Kubernetes",
+        "Они требуют разных версий kubectl",
+        "Они могут конфликтовать, одновременно меняя число реплик и размер ресурсов по одной метрике",
+        "VPA работает только в GKE"
+      ],
+      "answer": 2,
+      "explain": "HPA масштабирует количество реплик, а VPA — размер ресурсов; при использовании по одинаковым метрикам (CPU/memory) они могут создавать колебания и конфликтовать друг с другом."
+    },
+    {
+      "q": "Что такое 'headroom' в контексте capacity planning?",
+      "options": [
+        "Максимальное время отклика сервиса",
+        "Запас мощности сверх текущей пиковой нагрузки для покрытия неожиданных всплесков",
+        "Разница между p50 и p99 latency",
+        "Время развертывания нового сервера"
+      ],
+      "answer": 1,
+      "explain": "Headroom — это резерв capacity (обычно 20-40% сверх пикового использования), позволяющий системе пережить неожиданный рост нагрузки без деградации."
+    },
+    {
+      "q": "Что делает параметр vm.swappiness=10 по сравнению со значением по умолчанию 60?",
+      "options": [
+        "Увеличивает агрессивность выгрузки страниц памяти в swap",
+        "Уменьшает агрессивность использования swap, снижая риск неожиданных задержек",
+        "Полностью отключает swap",
+        "Увеличивает размер файла подкачки"
+      ],
+      "answer": 1,
+      "explain": "Более низкое значение vm.swappiness делает ядро менее склонным выгружать страницы памяти в swap, что снижает риск latency-спайков на серверах БД и в Kubernetes-нодах."
+    },
+    {
+      "q": "Что представляет собой 'span' в контексте distributed tracing?",
+      "options": [
+        "Уникальный идентификатор всего запроса через все сервисы",
+        "Одна операция внутри trace с началом, концом и родительским span",
+        "Файл конфигурации трейсинга",
+        "Метрика пропускной способности сервиса"
+      ],
+      "answer": 1,
+      "explain": "Span — единица работы внутри trace (например, вызов БД или запрос к другому сервису), связанная с родительским span и объединённая общим trace_id."
+    }
+  ]
 }

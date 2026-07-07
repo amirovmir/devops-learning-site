@@ -1,1 +1,345 @@
-{"phase":"Phase 3 — CI/CD + Terraform + Ansible","section":"🏗️ Terraform","topics":[{"title":"HCL синтаксис: resource, variable, output, locals, data","level":"🟢 Junior","explanation":"<p>HCL (HashiCorp Configuration Language) — декларативный язык, на котором пишутся Terraform-конфигурации. Основные блоки: <strong>resource</strong> описывает объект инфраструктуры, <strong>variable</strong> задаёт входной параметр, <strong>output</strong> экспортирует значение после apply, <strong>locals</strong> хранит промежуточные вычисления, а <strong>data</strong> читает существующие ресурсы без управления ими.</p><pre><code>variable \"env\" {\n  type    = string\n  default = \"dev\"\n}\n\nlocals {\n  name_prefix = \"myapp-${var.env}\"\n}\n\ndata \"aws_ami\" \"ubuntu\" {\n  most_recent = true\n  owners      = [\"099720109477\"]\n}\n\nresource \"aws_instance\" \"web\" {\n  ami           = data.aws_ami.ubuntu.id\n  instance_type = \"t3.micro\"\n  tags = { Name = local.name_prefix }\n}\n\noutput \"instance_id\" {\n  value = aws_instance.web.id\n}</code></pre><p>Каждый <code>resource</code> и <code>data</code> имеет тип и локальное имя (например, <code>aws_instance.web</code>), по которым к нему можно обращаться из других блоков через точечную нотацию.</p><ul><li><strong>resource</strong> — создаёт/изменяет/удаляет реальный объект.</li><li><strong>data</strong> — только читает.</li><li><strong>locals</strong> — не принимает значения снаружи, вычисляется внутри конфигурации.</li></ul><p>Понимание этих пяти блоков — фундамент для любой Terraform-конфигурации, независимо от провайдера.</p>"},{"title":"Провайдеры: provider блок, версионирование, required_providers","level":"🟢 Junior","explanation":"<p>Провайдер — плагин, транслирующий HCL-код в вызовы API конкретной платформы (AWS, GCP, Azure, Docker и др.). Блок <code>required_providers</code> внутри <code>terraform {}</code> задаёт источник и версию плагина, а блок <strong>provider</strong> настраивает его (регион, credentials, алиасы).</p><pre><code>terraform {\n  required_version = \">= 1.5.0\"\n  required_providers {\n    aws = {\n      source  = \"hashicorp/aws\"\n      version = \"~> 5.0\"\n    }\n  }\n}\n\nprovider \"aws\" {\n  region = \"eu-central-1\"\n}\n\nprovider \"aws\" {\n  alias  = \"us\"\n  region = \"us-east-1\"\n}</code></pre><p>Версионирование критично: без ограничения <code>terraform init</code> может подтянуть новую major-версию с breaking changes. Оператор <code>~></code> (&quot;pessimistic constraint&quot;) фиксирует major/minor и допускает только патчи.</p><table><tr><th>Синтаксис</th><th>Значение</th></tr><tr><td>= 5.0.0</td><td>точная версия</td></tr><tr><td>&gt;= 5.0</td><td>любая версия не ниже</td></tr><tr><td>~&gt; 5.0</td><td>5.x, но не 6.0</td></tr></table><p>Несколько конфигураций одного провайдера с разными настройками различаются через <code>alias</code>, что удобно для мультирегионных или мультиаккаунтных деплоев.</p>"},{"title":"Workflow: init, plan, apply, destroy, show, state list","level":"🟢 Junior","explanation":"<p>Стандартный жизненный цикл работы с Terraform состоит из нескольких последовательных команд.</p><ul><li><code>terraform init</code> — скачивает провайдеры и модули, инициализирует backend.</li><li><code>terraform plan</code> — строит план изменений (diff между кодом и текущим state), не применяя их.</li><li><code>terraform apply</code> — применяет план, создавая/изменяя/удаляя реальные ресурсы.</li><li><code>terraform destroy</code> — удаляет все ресурсы, управляемые данной конфигурацией.</li><li><code>terraform show</code> — выводит содержимое state или сохранённого плана в читаемом виде.</li><li><code>terraform state list</code> — показывает список всех ресурсов в state.</li></ul><pre><code>terraform init\nterraform plan -out=tfplan\nterraform apply tfplan\nterraform state list\n# aws_instance.web\n# aws_vpc.main\nterraform show\nterraform destroy</code></pre><p>Использование <code>-out</code> в plan и передача файла в apply гарантирует, что применяется именно проверенный план, а не пересчитанный &quot;на лету&quot; (что важно при параллельной работе команды).</p><p><strong>Важно:</strong> <code>destroy</code> — безвозвратная операция, в проде её обычно защищают через <code>prevent_destroy</code> или ручное подтверждение в CI/CD.</p>"},{"title":"State file: tfstate, что хранит, state locking","level":"🟢 Junior","explanation":"<p>Файл <code>terraform.tfstate</code> — это JSON-документ, в котором Terraform хранит соответствие между ресурсами в коде и реальными объектами в облаке (ID, атрибуты, метаданные, зависимости). Без state Terraform не может понять, что уже создано, и будет пытаться создавать ресурсы заново.</p><pre><code>{\n  \"version\": 4,\n  \"resources\": [\n    {\n      \"type\": \"aws_instance\",\n      \"name\": \"web\",\n      \"instances\": [{ \"attributes\": { \"id\": \"i-0abc123\" } }]\n    }\n  ]\n}</code></pre><p>State может содержать <strong>чувствительные данные</strong> (пароли, ключи), поэтому его нельзя коммитить в открытый Git-репозиторий — рекомендуется удалённый backend с шифрованием.</p><p><strong>State locking</strong> предотвращает одновременное изменение state двумя людьми/процессами: при запуске apply создаётся лок (например, запись в DynamoDB для S3-backend), и второй процесс будет ждать или получит ошибку.</p><ul><li>Локальный state (<code>terraform.tfstate</code> на диске) — только для обучения/личных проектов.</li><li>Потеря или ручное редактирование state — частая причина серьёзных инцидентов.</li><li>Команды <code>terraform state mv/rm/pull/push</code> позволяют управлять state вручную при необходимости.</li></ul>"},{"title":"Базовые ресурсы AWS: VPC, subnet, EC2, security group, IAM role","level":"🟢 Junior","explanation":"<p>Типовой набор AWS-ресурсов, с которого начинается почти любая инфраструктура: сеть, вычисления и права доступа.</p><pre><code>resource \"aws_vpc\" \"main\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n\nresource \"aws_subnet\" \"public\" {\n  vpc_id            = aws_vpc.main.id\n  cidr_block        = \"10.0.1.0/24\"\n  availability_zone = \"eu-central-1a\"\n}\n\nresource \"aws_security_group\" \"web_sg\" {\n  vpc_id = aws_vpc.main.id\n  ingress {\n    from_port   = 22\n    to_port     = 22\n    protocol    = \"tcp\"\n    cidr_blocks = [\"0.0.0.0/0\"]\n  }\n}\n\nresource \"aws_iam_role\" \"ec2_role\" {\n  name = \"ec2-role\"\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\",\n    Statement = [{ Effect = \"Allow\", Principal = { Service = \"ec2.amazonaws.com\" }, Action = \"sts:AssumeRole\" }]\n  })\n}\n\nresource \"aws_instance\" \"web\" {\n  ami                    = \"ami-0123456789\"\n  instance_type          = \"t3.micro\"\n  subnet_id              = aws_subnet.public.id\n  vpc_security_group_ids = [aws_security_group.web_sg.id]\n}</code></pre><p><strong>VPC</strong> — изолированная сеть, <strong>subnet</strong> — её сегмент в конкретной AZ, <strong>security group</strong> — виртуальный firewall на уровне инстанса, <strong>IAM role</strong> — набор прав, который EC2 может &quot;принять&quot; вместо хранения статичных ключей.</p><p>Связывание ресурсов через ссылки (<code>aws_vpc.main.id</code>) автоматически формирует граф зависимостей — Terraform сам определяет порядок создания.</p>"},{"title":"Remote backend: S3 + DynamoDB lock или Terraform Cloud","level":"🟡 Middle","explanation":"<p>Remote backend хранит state вне локальной машины — это обязательно для командной работы. Самая распространённая связка в AWS: <strong>S3</strong> для самого файла state и <strong>DynamoDB</strong> для локов (state locking), предотвращающих гонки при одновременном apply.</p><pre><code>terraform {\n  backend \"s3\" {\n    bucket         = \"my-tfstate-bucket\"\n    key            = \"prod/network.tfstate\"\n    region         = \"eu-central-1\"\n    dynamodb_table = \"terraform-locks\"\n    encrypt        = true\n  }\n}</code></pre><p>Альтернатива — <strong>Terraform Cloud/Enterprise</strong>, который берёт на себя state, локи, историю run'ов, политики (Sentinel) и веб-UI для review плана перед apply, без необходимости поднимать свою инфраструктуру для backend.</p><table><tr><th>Backend</th><th>Плюсы</th></tr><tr><td>S3 + DynamoDB</td><td>дешево, полный контроль, знакомая AWS-инфраструктура</td></tr><tr><td>Terraform Cloud</td><td>UI, RBAC, policy as code, run history &quot;из коробки&quot;</td></tr></table><p>После смены backend нужно выполнить <code>terraform init -migrate-state</code>, чтобы перенести существующий state на новое хранилище без потери данных.</p>"},{"title":"Модули: создание, source, версионирование, reusability","level":"🟡 Middle","explanation":"<p>Модуль — это переиспользуемый набор ресурсов, оформленный как отдельная директория с <code>.tf</code>-файлами. Любая конфигурация Terraform уже является модулем (root module), а вложенные модули подключаются через блок <strong>module</strong>.</p><pre><code># modules/vpc/main.tf\nvariable \"cidr\" { type = string }\nresource \"aws_vpc\" \"this\" {\n  cidr_block = var.cidr\n}\noutput \"vpc_id\" { value = aws_vpc.this.id }\n\n# root main.tf\nmodule \"network\" {\n  source = \"./modules/vpc\"\n  cidr   = \"10.0.0.0/16\"\n}\n\nmodule \"network_registry\" {\n  source  = \"terraform-aws-modules/vpc/aws\"\n  version = \"5.5.0\"\n}</code></pre><p><code>source</code> может указывать на локальный путь, Git-репозиторий, Terraform Registry или архив в S3. Для модулей из внешних источников обязательно фиксировать <code>version</code>, иначе обновление модуля может незаметно поменять инфраструктуру.</p><ul><li>Модули инкапсулируют сложность (VPC, EKS-кластер и т.д.) за простым интерфейсом variables/outputs.</li><li>Хорошая практика — публичный <a>Terraform Registry</a> для стандартных паттернов (VPC, RDS) и приватные модули для внутренней специфики.</li><li>Переиспользование модулей снижает дублирование кода между окружениями.</li></ul>"},{"title":"Workspace: dev/staging/prod окружения через workspace","level":"🟡 Middle","explanation":"<p>Terraform workspace позволяет управлять несколькими независимыми state в рамках одной конфигурации — например, отдельно для dev, staging и prod, без дублирования кода.</p><pre><code>terraform workspace new dev\nterraform workspace new prod\nterraform workspace select dev\nterraform workspace list\n# * dev\n#   prod\n#   default</code></pre><p>Имя текущего workspace доступно через переменную <code>terraform.workspace</code> и часто используется для параметризации ресурсов:</p><pre><code>resource \"aws_instance\" \"web\" {\n  instance_type = terraform.workspace == \"prod\" ? \"t3.large\" : \"t3.micro\"\n  tags = { Env = terraform.workspace }\n}</code></pre><p>Каждый workspace хранит свой отдельный state-файл (при remote backend — в отдельном префиксе/key).</p><p><strong>Ограничение:</strong> workspace хорошо подходят, когда окружения почти идентичны по структуре. Если dev и prod сильно различаются (разные регионы, разные модули), часто предпочитают отдельные директории/конфигурации вместо workspace — это даёт больше гибкости и явности в code review.</p>"},{"title":"count и for_each: динамическое создание ресурсов","level":"🟡 Middle","explanation":"<p><strong>count</strong> и <strong>for_each</strong> позволяют создавать несколько экземпляров одного ресурса без копирования кода. <code>count</code> использует числовой индекс, <code>for_each</code> — множество или карту (map/set), что даёт более стабильные и предсказуемые адреса ресурсов при изменении состава.</p><pre><code>resource \"aws_instance\" \"web\" {\n  count         = 3\n  ami           = \"ami-0123456789\"\n  instance_type = \"t3.micro\"\n  tags = { Name = \"web-${count.index}\" }\n}\n\nvariable \"subnets\" {\n  default = {\n    a = \"10.0.1.0/24\"\n    b = \"10.0.2.0/24\"\n  }\n}\n\nresource \"aws_subnet\" \"this\" {\n  for_each          = var.subnets\n  vpc_id            = aws_vpc.main.id\n  cidr_block        = each.value\n  availability_zone = \"eu-central-1${each.key}\"\n}</code></pre><p>Проблема <code>count</code>: если удалить элемент из середины списка, Terraform может пересоздать все последующие ресурсы (сдвиг индексов). <code>for_each</code> с картой избегает этой проблемы, так как ресурсы адресуются по ключу (<code>aws_subnet.this[\"a\"]</code>), а не по позиции.</p><table><tr><th>Механизм</th><th>Когда использовать</th></tr><tr><td>count</td><td>простое повторение N одинаковых объектов</td></tr><tr><td>for_each</td><td>набор объектов с уникальными атрибутами/именами</td></tr></table>"},{"title":"Dynamic blocks: вложенные блоки с for_each","level":"🟡 Middle","explanation":"<p><strong>Dynamic block</strong> генерирует повторяющиеся вложенные блоки внутри ресурса (например, несколько <code>ingress</code> правил в security group) на основе списка или карты, вместо того чтобы прописывать каждый блок вручную.</p><pre><code>variable \"ingress_rules\" {\n  default = [\n    { port = 22, cidr = \"10.0.0.0/16\" },\n    { port = 443, cidr = \"0.0.0.0/0\" }\n  ]\n}\n\nresource \"aws_security_group\" \"web\" {\n  name   = \"web-sg\"\n  vpc_id = aws_vpc.main.id\n\n  dynamic \"ingress\" {\n    for_each = var.ingress_rules\n    content {\n      from_port   = ingress.value.port\n      to_port     = ingress.value.port\n      protocol    = \"tcp\"\n      cidr_blocks = [ingress.value.cidr]\n    }\n  }\n}</code></pre><p>Внутри <code>content</code> текущий элемент доступен через имя блока (<code>ingress.value</code>, <code>ingress.key</code>) — по аналогии с <code>each</code> в <code>for_each</code> на уровне ресурса.</p><ul><li>Полезно для security groups, IAM policy statements, tags-блоков с переменным количеством элементов.</li><li>Не стоит использовать dynamic block для фиксированного и небольшого набора полей — это усложняет чтение кода без явной выгоды.</li></ul>"},{"title":"terraform import: добавить существующий ресурс в state","level":"🟡 Middle","explanation":"<p><code>terraform import</code> позволяет &quot;взять под управление&quot; Terraform ресурс, который уже существует в облаке, но был создан вручную (через консоль, CLI или другой инструмент), без его пересоздания.</p><pre><code># 1. Описать ресурс в коде (пустой блок допустим)\nresource \"aws_instance\" \"web\" {\n  # атрибуты добавим после импорта\n}\n\n# 2. Импортировать реальный объект в state\nterraform import aws_instance.web i-0abc123def456\n\n# 3. Проверить план — не должно быть diff\nterraform plan</code></pre><p>После импорта state содержит атрибуты ресурса, но конфигурация в <code>.tf</code>-файле нужно дополнить вручную (обычно через <code>terraform show</code>), чтобы <code>plan</code> не показывал расхождений — иначе следующий apply попытается &quot;исправить&quot; ресурс под неполный код.</p><p>В Terraform 1.5+ появился декларативный блок <strong>import</strong>, который делает то же самое прямо в коде, без отдельной CLI-команды:</p><pre><code>import {\n  to = aws_instance.web\n  id = \"i-0abc123def456\"\n}</code></pre><p>Импорт — типичный шаг при переходе legacy-инфраструктуры на IaC.</p>"},{"title":"Preconditions / postconditions: валидации в коде","level":"🟡 Middle","explanation":"<p>Начиная с Terraform 1.2, блоки <strong>precondition</strong> и <strong>postcondition</strong> позволяют явно проверять предположения о ресурсах и данных прямо в HCL, останавливая apply с понятной ошибкой, если условие нарушено.</p><pre><code>data \"aws_ami\" \"ubuntu\" {\n  most_recent = true\n  owners      = [\"099720109477\"]\n\n  lifecycle {\n    postcondition {\n      condition     = self.architecture == \"x86_64\"\n      error_message = \"AMI должен быть x86_64, найдено: ${self.architecture}\"\n    }\n  }\n}\n\nresource \"aws_instance\" \"web\" {\n  instance_type = var.instance_type\n\n  lifecycle {\n    precondition {\n      condition     = contains([\"t3.micro\", \"t3.small\"], var.instance_type)\n      error_message = \"instance_type должен быть t3.micro или t3.small.\"\n    }\n  }\n}</code></pre><p><strong>precondition</strong> проверяется до создания/изменения ресурса, <strong>postcondition</strong> — после, на основе фактических атрибутов (<code>self</code>).</p><p>Это дополняет <code>variable { validation {} }</code>, но работает на уровне ресурсов и data source, а не только входных переменных, позволяя ловить логические ошибки (неверный AMI, недопустимая зона доступности) до применения в продакшене.</p>"},{"title":"tflint, terraform validate, terraform fmt: качество кода","level":"🟡 Middle","explanation":"<p>Три инструмента для поддержания качества Terraform-кода, обычно встроенные в pre-commit хуки и CI pipeline.</p><ul><li><code>terraform fmt</code> — приводит код к каноническому стилю форматирования (отступы, выравнивание знаков =).</li><li><code>terraform validate</code> — проверяет синтаксическую корректность и внутреннюю согласованность конфигурации (без обращения к провайдеру за реальным state).</li><li><strong>tflint</strong> — линтер, который находит проблемы, невидимые для validate: неиспользуемые переменные, устаревшие типы инстансов, ошибки специфичные для провайдера (через плагины, например tflint-ruleset-aws).</li></ul><pre><code>terraform fmt -recursive -check\nterraform validate\n\ntflint --init\ntflint --recursive</code></pre><p>Типичный шаг CI-pipeline:</p><pre><code>stage: lint\nscript:\n  - terraform fmt -check -recursive\n  - terraform init -backend=false\n  - terraform validate\n  - tflint --recursive</code></pre><table><tr><th>Инструмент</th><th>Что проверяет</th></tr><tr><td>fmt</td><td>стиль/форматирование</td></tr><tr><td>validate</td><td>синтаксис, типы, ссылки</td></tr><tr><td>tflint</td><td>best practices, provider-специфичные ошибки</td></tr></table><p>Эти проверки должны блокировать merge request при провале — это дешёвый способ отловить ошибки до terraform plan/apply.</p>"}],"quiz":[{"q":"Какой блок HCL используется только для чтения существующего ресурса без управления им?","options":["resource","data","locals","module"],"answer":1,"explain":"Блок data выполняет только чтение информации о существующем объекте, в отличие от resource, который создаёт и управляет ресурсом."},{"q":"Что делает ограничение версии провайдера '~> 5.0'?","options":["Разрешает любую версию 5.x, кроме 6.0","Требует точно версию 5.0.0","Запрещает версии выше 5.0.0","Разрешает только версии ниже 5.0"],"answer":0,"explain":"Оператор ~> (pessimistic constraint) фиксирует старшую часть версии и допускает обновления только в пределах патчей/минорных версий."},{"q":"Какая команда применяет ранее сохранённый план из файла tfplan?","options":["terraform apply","terraform apply tfplan","terraform plan -apply tfplan","terraform show tfplan"],"answer":1,"explain":"terraform apply с указанием файла плана (tfplan) применяет именно тот проверенный план, а не пересчитывает его заново."},{"q":"Зачем нужен DynamoDB при использовании S3 как backend для state?","options":["Для хранения самого файла state","Для кеширования плана","Для реализации state locking","Для хранения переменных окружения"],"answer":2,"explain":"DynamoDB используется для блокировки state (state locking), предотвращая одновременное изменение state несколькими процессами."},{"q":"В чём ключевое отличие for_each от count при создании нескольких ресурсов?","options":["for_each работает только с числами","count поддерживает карты (map), а for_each — нет","for_each адресует ресурсы по ключу, что устойчивее к изменению состава списка","count быстрее выполняется всегда"],"answer":2,"explain":"for_each использует уникальные ключи вместо числовых индексов, поэтому удаление элемента из середины набора не вызывает пересоздание остальных ресурсов, как может произойти с count."},{"q":"Что позволяет сделать dynamic block в Terraform?","options":["Динамически менять provider во время apply","Генерировать повторяющиеся вложенные блоки внутри ресурса на основе for_each","Создавать динамические переменные окружения","Автоматически обновлять state без lock"],"answer":1,"explain":"dynamic block генерирует набор вложенных блоков (например, ingress-правил) на основе коллекции, избегая ручного дублирования кода."},{"q":"Что делает terraform import?","options":["Импортирует модуль из Terraform Registry","Добавляет существующий облачный ресурс в state без его пересоздания","Импортирует переменные из файла .tfvars","Копирует state из одного workspace в другой"],"answer":1,"explain":"terraform import связывает уже существующий в облаке объект с ресурсом, описанным в конфигурации, записывая его в state без создания заново."},{"q":"Когда срабатывает precondition в блоке lifecycle?","options":["После создания ресурса, на основе его фактических атрибутов","До создания или изменения ресурса, до обращения к провайдеру","Только во время terraform destroy","Только при выполнении terraform fmt"],"answer":1,"explain":"precondition проверяется до применения изменений к ресурсу, тогда как postcondition проверяется после, на основе self (фактических атрибутов)."},{"q":"Какой инструмент находит provider-специфичные проблемы (например, устаревший тип инстанса), которые не видит terraform validate?","options":["terraform fmt","tflint","terraform show","terraform state list"],"answer":1,"explain":"tflint — линтер с плагинами под конкретных провайдеров, который ловит семантические и best-practice проблемы, невидимые для стандартного validate."},{"q":"Для чего используется terraform.workspace в коде ресурса?","options":["Для указания версии Terraform CLI","Для получения имени текущего workspace и параметризации ресурсов по окружению","Для смены backend без миграции state","Для запуска terraform apply в фоне"],"answer":1,"explain":"Переменная terraform.workspace возвращает имя активного workspace (например, dev или prod), что позволяет менять параметры ресурсов в зависимости от окружения без дублирования кода."}]}
+{
+  "phase": "Phase 3 — CI/CD + Terraform + Ansible",
+  "section": "🏗️ Terraform",
+  "topics": [
+    {
+      "title": "HCL синтаксис: resource, variable, output, locals, data",
+      "level": "🟢 Junior",
+      "explanation": "<p>HCL (HashiCorp Configuration Language) — декларативный язык, на котором пишутся Terraform-конфигурации. Основные блоки: <strong>resource</strong> описывает объект инфраструктуры, <strong>variable</strong> задаёт входной параметр, <strong>output</strong> экспортирует значение после apply, <strong>locals</strong> хранит промежуточные вычисления, а <strong>data</strong> читает существующие ресурсы без управления ими.</p><pre><code>variable \"env\" {\n  type    = string\n  default = \"dev\"\n}\n\nlocals {\n  name_prefix = \"myapp-${var.env}\"\n}\n\ndata \"aws_ami\" \"ubuntu\" {\n  most_recent = true\n  owners      = [\"099720109477\"]\n}\n\nresource \"aws_instance\" \"web\" {\n  ami           = data.aws_ami.ubuntu.id\n  instance_type = \"t3.micro\"\n  tags = { Name = local.name_prefix }\n}\n\noutput \"instance_id\" {\n  value = aws_instance.web.id\n}</code></pre><p>Каждый <code>resource</code> и <code>data</code> имеет тип и локальное имя (например, <code>aws_instance.web</code>), по которым к нему можно обращаться из других блоков через точечную нотацию.</p><ul><li><strong>resource</strong> — создаёт/изменяет/удаляет реальный объект.</li><li><strong>data</strong> — только читает.</li><li><strong>locals</strong> — не принимает значения снаружи, вычисляется внутри конфигурации.</li></ul><p>Понимание этих пяти блоков — фундамент для любой Terraform-конфигурации, независимо от провайдера.</p>",
+      "links": [
+        {
+          "title": "Terraform Docs — Configuration Language (HCL)",
+          "url": "https://developer.hashicorp.com/terraform/language"
+        },
+        {
+          "title": "Terraform Docs — Resources",
+          "url": "https://developer.hashicorp.com/terraform/language/resources/syntax"
+        },
+        {
+          "title": "Terraform Docs — Data sources",
+          "url": "https://developer.hashicorp.com/terraform/language/data-sources"
+        }
+      ]
+    },
+    {
+      "title": "Провайдеры: provider блок, версионирование, required_providers",
+      "level": "🟢 Junior",
+      "explanation": "<p>Провайдер — плагин, транслирующий HCL-код в вызовы API конкретной платформы (AWS, GCP, Azure, Docker и др.). Блок <code>required_providers</code> внутри <code>terraform {}</code> задаёт источник и версию плагина, а блок <strong>provider</strong> настраивает его (регион, credentials, алиасы).</p><pre><code>terraform {\n  required_version = \">= 1.5.0\"\n  required_providers {\n    aws = {\n      source  = \"hashicorp/aws\"\n      version = \"~> 5.0\"\n    }\n  }\n}\n\nprovider \"aws\" {\n  region = \"eu-central-1\"\n}\n\nprovider \"aws\" {\n  alias  = \"us\"\n  region = \"us-east-1\"\n}</code></pre><p>Версионирование критично: без ограничения <code>terraform init</code> может подтянуть новую major-версию с breaking changes. Оператор <code>~></code> (&quot;pessimistic constraint&quot;) фиксирует major/minor и допускает только патчи.</p><table><tr><th>Синтаксис</th><th>Значение</th></tr><tr><td>= 5.0.0</td><td>точная версия</td></tr><tr><td>&gt;= 5.0</td><td>любая версия не ниже</td></tr><tr><td>~&gt; 5.0</td><td>5.x, но не 6.0</td></tr></table><p>Несколько конфигураций одного провайдера с разными настройками различаются через <code>alias</code>, что удобно для мультирегионных или мультиаккаунтных деплоев.</p>",
+      "links": [
+        {
+          "title": "Terraform Docs — Providers",
+          "url": "https://developer.hashicorp.com/terraform/language/providers"
+        },
+        {
+          "title": "Terraform Docs — Provider requirements",
+          "url": "https://developer.hashicorp.com/terraform/language/providers/requirements"
+        },
+        {
+          "title": "Terraform Registry — AWS Provider",
+          "url": "https://registry.terraform.io/providers/hashicorp/aws/latest"
+        }
+      ]
+    },
+    {
+      "title": "Workflow: init, plan, apply, destroy, show, state list",
+      "level": "🟢 Junior",
+      "explanation": "<p>Стандартный жизненный цикл работы с Terraform состоит из нескольких последовательных команд.</p><ul><li><code>terraform init</code> — скачивает провайдеры и модули, инициализирует backend.</li><li><code>terraform plan</code> — строит план изменений (diff между кодом и текущим state), не применяя их.</li><li><code>terraform apply</code> — применяет план, создавая/изменяя/удаляя реальные ресурсы.</li><li><code>terraform destroy</code> — удаляет все ресурсы, управляемые данной конфигурацией.</li><li><code>terraform show</code> — выводит содержимое state или сохранённого плана в читаемом виде.</li><li><code>terraform state list</code> — показывает список всех ресурсов в state.</li></ul><pre><code>terraform init\nterraform plan -out=tfplan\nterraform apply tfplan\nterraform state list\n# aws_instance.web\n# aws_vpc.main\nterraform show\nterraform destroy</code></pre><p>Использование <code>-out</code> в plan и передача файла в apply гарантирует, что применяется именно проверенный план, а не пересчитанный &quot;на лету&quot; (что важно при параллельной работе команды).</p><p><strong>Важно:</strong> <code>destroy</code> — безвозвратная операция, в проде её обычно защищают через <code>prevent_destroy</code> или ручное подтверждение в CI/CD.</p>",
+      "links": [
+        {
+          "title": "Terraform Docs — Basic CLI features",
+          "url": "https://developer.hashicorp.com/terraform/cli/commands"
+        },
+        {
+          "title": "Terraform Docs — Command: plan",
+          "url": "https://developer.hashicorp.com/terraform/cli/commands/plan"
+        },
+        {
+          "title": "Terraform Docs — Command: apply",
+          "url": "https://developer.hashicorp.com/terraform/cli/commands/apply"
+        }
+      ]
+    },
+    {
+      "title": "State file: tfstate, что хранит, state locking",
+      "level": "🟢 Junior",
+      "explanation": "<p>Файл <code>terraform.tfstate</code> — это JSON-документ, в котором Terraform хранит соответствие между ресурсами в коде и реальными объектами в облаке (ID, атрибуты, метаданные, зависимости). Без state Terraform не может понять, что уже создано, и будет пытаться создавать ресурсы заново.</p><pre><code>{\n  \"version\": 4,\n  \"resources\": [\n    {\n      \"type\": \"aws_instance\",\n      \"name\": \"web\",\n      \"instances\": [{ \"attributes\": { \"id\": \"i-0abc123\" } }]\n    }\n  ]\n}</code></pre><p>State может содержать <strong>чувствительные данные</strong> (пароли, ключи), поэтому его нельзя коммитить в открытый Git-репозиторий — рекомендуется удалённый backend с шифрованием.</p><p><strong>State locking</strong> предотвращает одновременное изменение state двумя людьми/процессами: при запуске apply создаётся лок (например, запись в DynamoDB для S3-backend), и второй процесс будет ждать или получит ошибку.</p><ul><li>Локальный state (<code>terraform.tfstate</code> на диске) — только для обучения/личных проектов.</li><li>Потеря или ручное редактирование state — частая причина серьёзных инцидентов.</li><li>Команды <code>terraform state mv/rm/pull/push</code> позволяют управлять state вручную при необходимости.</li></ul>",
+      "links": [
+        {
+          "title": "Terraform Docs — State",
+          "url": "https://developer.hashicorp.com/terraform/language/state"
+        },
+        {
+          "title": "Terraform Docs — State locking",
+          "url": "https://developer.hashicorp.com/terraform/language/state/locking"
+        },
+        {
+          "title": "Terraform Docs — Sensitive data in state",
+          "url": "https://developer.hashicorp.com/terraform/language/state/sensitive-data"
+        }
+      ]
+    },
+    {
+      "title": "Базовые ресурсы AWS: VPC, subnet, EC2, security group, IAM role",
+      "level": "🟢 Junior",
+      "explanation": "<p>Типовой набор AWS-ресурсов, с которого начинается почти любая инфраструктура: сеть, вычисления и права доступа.</p><pre><code>resource \"aws_vpc\" \"main\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n\nresource \"aws_subnet\" \"public\" {\n  vpc_id            = aws_vpc.main.id\n  cidr_block        = \"10.0.1.0/24\"\n  availability_zone = \"eu-central-1a\"\n}\n\nresource \"aws_security_group\" \"web_sg\" {\n  vpc_id = aws_vpc.main.id\n  ingress {\n    from_port   = 22\n    to_port     = 22\n    protocol    = \"tcp\"\n    cidr_blocks = [\"0.0.0.0/0\"]\n  }\n}\n\nresource \"aws_iam_role\" \"ec2_role\" {\n  name = \"ec2-role\"\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\",\n    Statement = [{ Effect = \"Allow\", Principal = { Service = \"ec2.amazonaws.com\" }, Action = \"sts:AssumeRole\" }]\n  })\n}\n\nresource \"aws_instance\" \"web\" {\n  ami                    = \"ami-0123456789\"\n  instance_type          = \"t3.micro\"\n  subnet_id              = aws_subnet.public.id\n  vpc_security_group_ids = [aws_security_group.web_sg.id]\n}</code></pre><p><strong>VPC</strong> — изолированная сеть, <strong>subnet</strong> — её сегмент в конкретной AZ, <strong>security group</strong> — виртуальный firewall на уровне инстанса, <strong>IAM role</strong> — набор прав, который EC2 может &quot;принять&quot; вместо хранения статичных ключей.</p><p>Связывание ресурсов через ссылки (<code>aws_vpc.main.id</code>) автоматически формирует граф зависимостей — Terraform сам определяет порядок создания.</p>",
+      "links": [
+        {
+          "title": "Terraform Registry — aws_vpc resource",
+          "url": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc"
+        },
+        {
+          "title": "Terraform Registry — aws_instance resource",
+          "url": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance"
+        },
+        {
+          "title": "Terraform Registry — aws_iam_role resource",
+          "url": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role"
+        }
+      ]
+    },
+    {
+      "title": "Remote backend: S3 + DynamoDB lock или Terraform Cloud",
+      "level": "🟡 Middle",
+      "explanation": "<p>Remote backend хранит state вне локальной машины — это обязательно для командной работы. Самая распространённая связка в AWS: <strong>S3</strong> для самого файла state и <strong>DynamoDB</strong> для локов (state locking), предотвращающих гонки при одновременном apply.</p><pre><code>terraform {\n  backend \"s3\" {\n    bucket         = \"my-tfstate-bucket\"\n    key            = \"prod/network.tfstate\"\n    region         = \"eu-central-1\"\n    dynamodb_table = \"terraform-locks\"\n    encrypt        = true\n  }\n}</code></pre><p>Альтернатива — <strong>Terraform Cloud/Enterprise</strong>, который берёт на себя state, локи, историю run'ов, политики (Sentinel) и веб-UI для review плана перед apply, без необходимости поднимать свою инфраструктуру для backend.</p><table><tr><th>Backend</th><th>Плюсы</th></tr><tr><td>S3 + DynamoDB</td><td>дешево, полный контроль, знакомая AWS-инфраструктура</td></tr><tr><td>Terraform Cloud</td><td>UI, RBAC, policy as code, run history &quot;из коробки&quot;</td></tr></table><p>После смены backend нужно выполнить <code>terraform init -migrate-state</code>, чтобы перенести существующий state на новое хранилище без потери данных.</p>",
+      "links": [
+        {
+          "title": "Terraform Docs — Backend Type: s3",
+          "url": "https://developer.hashicorp.com/terraform/language/settings/backends/s3"
+        },
+        {
+          "title": "Terraform Docs — Terraform Cloud",
+          "url": "https://developer.hashicorp.com/terraform/cloud-docs"
+        },
+        {
+          "title": "Terraform Docs — Migrating state between backends",
+          "url": "https://developer.hashicorp.com/terraform/language/backend#changing-configuration"
+        }
+      ]
+    },
+    {
+      "title": "Модули: создание, source, версионирование, reusability",
+      "level": "🟡 Middle",
+      "explanation": "<p>Модуль — это переиспользуемый набор ресурсов, оформленный как отдельная директория с <code>.tf</code>-файлами. Любая конфигурация Terraform уже является модулем (root module), а вложенные модули подключаются через блок <strong>module</strong>.</p><pre><code># modules/vpc/main.tf\nvariable \"cidr\" { type = string }\nresource \"aws_vpc\" \"this\" {\n  cidr_block = var.cidr\n}\noutput \"vpc_id\" { value = aws_vpc.this.id }\n\n# root main.tf\nmodule \"network\" {\n  source = \"./modules/vpc\"\n  cidr   = \"10.0.0.0/16\"\n}\n\nmodule \"network_registry\" {\n  source  = \"terraform-aws-modules/vpc/aws\"\n  version = \"5.5.0\"\n}</code></pre><p><code>source</code> может указывать на локальный путь, Git-репозиторий, Terraform Registry или архив в S3. Для модулей из внешних источников обязательно фиксировать <code>version</code>, иначе обновление модуля может незаметно поменять инфраструктуру.</p><ul><li>Модули инкапсулируют сложность (VPC, EKS-кластер и т.д.) за простым интерфейсом variables/outputs.</li><li>Хорошая практика — публичный <a>Terraform Registry</a> для стандартных паттернов (VPC, RDS) и приватные модули для внутренней специфики.</li><li>Переиспользование модулей снижает дублирование кода между окружениями.</li></ul>",
+      "links": [
+        {
+          "title": "Terraform Docs — Modules",
+          "url": "https://developer.hashicorp.com/terraform/language/modules"
+        },
+        {
+          "title": "Terraform Docs — Module sources",
+          "url": "https://developer.hashicorp.com/terraform/language/modules/sources"
+        },
+        {
+          "title": "Terraform Registry — публичные модули",
+          "url": "https://registry.terraform.io/browse/modules"
+        }
+      ]
+    },
+    {
+      "title": "Workspace: dev/staging/prod окружения через workspace",
+      "level": "🟡 Middle",
+      "explanation": "<p>Terraform workspace позволяет управлять несколькими независимыми state в рамках одной конфигурации — например, отдельно для dev, staging и prod, без дублирования кода.</p><pre><code>terraform workspace new dev\nterraform workspace new prod\nterraform workspace select dev\nterraform workspace list\n# * dev\n#   prod\n#   default</code></pre><p>Имя текущего workspace доступно через переменную <code>terraform.workspace</code> и часто используется для параметризации ресурсов:</p><pre><code>resource \"aws_instance\" \"web\" {\n  instance_type = terraform.workspace == \"prod\" ? \"t3.large\" : \"t3.micro\"\n  tags = { Env = terraform.workspace }\n}</code></pre><p>Каждый workspace хранит свой отдельный state-файл (при remote backend — в отдельном префиксе/key).</p><p><strong>Ограничение:</strong> workspace хорошо подходят, когда окружения почти идентичны по структуре. Если dev и prod сильно различаются (разные регионы, разные модули), часто предпочитают отдельные директории/конфигурации вместо workspace — это даёт больше гибкости и явности в code review.</p>",
+      "links": [
+        {
+          "title": "Terraform Docs — Workspaces",
+          "url": "https://developer.hashicorp.com/terraform/language/state/workspaces"
+        },
+        {
+          "title": "Terraform Docs — Command: workspace",
+          "url": "https://developer.hashicorp.com/terraform/cli/commands/workspace"
+        }
+      ]
+    },
+    {
+      "title": "count и for_each: динамическое создание ресурсов",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>count</strong> и <strong>for_each</strong> позволяют создавать несколько экземпляров одного ресурса без копирования кода. <code>count</code> использует числовой индекс, <code>for_each</code> — множество или карту (map/set), что даёт более стабильные и предсказуемые адреса ресурсов при изменении состава.</p><pre><code>resource \"aws_instance\" \"web\" {\n  count         = 3\n  ami           = \"ami-0123456789\"\n  instance_type = \"t3.micro\"\n  tags = { Name = \"web-${count.index}\" }\n}\n\nvariable \"subnets\" {\n  default = {\n    a = \"10.0.1.0/24\"\n    b = \"10.0.2.0/24\"\n  }\n}\n\nresource \"aws_subnet\" \"this\" {\n  for_each          = var.subnets\n  vpc_id            = aws_vpc.main.id\n  cidr_block        = each.value\n  availability_zone = \"eu-central-1${each.key}\"\n}</code></pre><p>Проблема <code>count</code>: если удалить элемент из середины списка, Terraform может пересоздать все последующие ресурсы (сдвиг индексов). <code>for_each</code> с картой избегает этой проблемы, так как ресурсы адресуются по ключу (<code>aws_subnet.this[\"a\"]</code>), а не по позиции.</p><table><tr><th>Механизм</th><th>Когда использовать</th></tr><tr><td>count</td><td>простое повторение N одинаковых объектов</td></tr><tr><td>for_each</td><td>набор объектов с уникальными атрибутами/именами</td></tr></table>",
+      "links": [
+        {
+          "title": "Terraform Docs — The count Meta-Argument",
+          "url": "https://developer.hashicorp.com/terraform/language/meta-arguments/count"
+        },
+        {
+          "title": "Terraform Docs — The for_each Meta-Argument",
+          "url": "https://developer.hashicorp.com/terraform/language/meta-arguments/for_each"
+        }
+      ]
+    },
+    {
+      "title": "Dynamic blocks: вложенные блоки с for_each",
+      "level": "🟡 Middle",
+      "explanation": "<p><strong>Dynamic block</strong> генерирует повторяющиеся вложенные блоки внутри ресурса (например, несколько <code>ingress</code> правил в security group) на основе списка или карты, вместо того чтобы прописывать каждый блок вручную.</p><pre><code>variable \"ingress_rules\" {\n  default = [\n    { port = 22, cidr = \"10.0.0.0/16\" },\n    { port = 443, cidr = \"0.0.0.0/0\" }\n  ]\n}\n\nresource \"aws_security_group\" \"web\" {\n  name   = \"web-sg\"\n  vpc_id = aws_vpc.main.id\n\n  dynamic \"ingress\" {\n    for_each = var.ingress_rules\n    content {\n      from_port   = ingress.value.port\n      to_port     = ingress.value.port\n      protocol    = \"tcp\"\n      cidr_blocks = [ingress.value.cidr]\n    }\n  }\n}</code></pre><p>Внутри <code>content</code> текущий элемент доступен через имя блока (<code>ingress.value</code>, <code>ingress.key</code>) — по аналогии с <code>each</code> в <code>for_each</code> на уровне ресурса.</p><ul><li>Полезно для security groups, IAM policy statements, tags-блоков с переменным количеством элементов.</li><li>Не стоит использовать dynamic block для фиксированного и небольшого набора полей — это усложняет чтение кода без явной выгоды.</li></ul>",
+      "links": [
+        {
+          "title": "Terraform Docs — Dynamic Blocks",
+          "url": "https://developer.hashicorp.com/terraform/language/expressions/dynamic-blocks"
+        },
+        {
+          "title": "Terraform Docs — for_each Meta-Argument",
+          "url": "https://developer.hashicorp.com/terraform/language/meta-arguments/for_each"
+        }
+      ]
+    },
+    {
+      "title": "terraform import: добавить существующий ресурс в state",
+      "level": "🟡 Middle",
+      "explanation": "<p><code>terraform import</code> позволяет &quot;взять под управление&quot; Terraform ресурс, который уже существует в облаке, но был создан вручную (через консоль, CLI или другой инструмент), без его пересоздания.</p><pre><code># 1. Описать ресурс в коде (пустой блок допустим)\nresource \"aws_instance\" \"web\" {\n  # атрибуты добавим после импорта\n}\n\n# 2. Импортировать реальный объект в state\nterraform import aws_instance.web i-0abc123def456\n\n# 3. Проверить план — не должно быть diff\nterraform plan</code></pre><p>После импорта state содержит атрибуты ресурса, но конфигурация в <code>.tf</code>-файле нужно дополнить вручную (обычно через <code>terraform show</code>), чтобы <code>plan</code> не показывал расхождений — иначе следующий apply попытается &quot;исправить&quot; ресурс под неполный код.</p><p>В Terraform 1.5+ появился декларативный блок <strong>import</strong>, который делает то же самое прямо в коде, без отдельной CLI-команды:</p><pre><code>import {\n  to = aws_instance.web\n  id = \"i-0abc123def456\"\n}</code></pre><p>Импорт — типичный шаг при переходе legacy-инфраструктуры на IaC.</p>",
+      "links": [
+        {
+          "title": "Terraform Docs — Command: import",
+          "url": "https://developer.hashicorp.com/terraform/cli/commands/import"
+        },
+        {
+          "title": "Terraform Docs — Import block",
+          "url": "https://developer.hashicorp.com/terraform/language/import"
+        }
+      ]
+    },
+    {
+      "title": "Preconditions / postconditions: валидации в коде",
+      "level": "🟡 Middle",
+      "explanation": "<p>Начиная с Terraform 1.2, блоки <strong>precondition</strong> и <strong>postcondition</strong> позволяют явно проверять предположения о ресурсах и данных прямо в HCL, останавливая apply с понятной ошибкой, если условие нарушено.</p><pre><code>data \"aws_ami\" \"ubuntu\" {\n  most_recent = true\n  owners      = [\"099720109477\"]\n\n  lifecycle {\n    postcondition {\n      condition     = self.architecture == \"x86_64\"\n      error_message = \"AMI должен быть x86_64, найдено: ${self.architecture}\"\n    }\n  }\n}\n\nresource \"aws_instance\" \"web\" {\n  instance_type = var.instance_type\n\n  lifecycle {\n    precondition {\n      condition     = contains([\"t3.micro\", \"t3.small\"], var.instance_type)\n      error_message = \"instance_type должен быть t3.micro или t3.small.\"\n    }\n  }\n}</code></pre><p><strong>precondition</strong> проверяется до создания/изменения ресурса, <strong>postcondition</strong> — после, на основе фактических атрибутов (<code>self</code>).</p><p>Это дополняет <code>variable { validation {} }</code>, но работает на уровне ресурсов и data source, а не только входных переменных, позволяя ловить логические ошибки (неверный AMI, недопустимая зона доступности) до применения в продакшене.</p>",
+      "links": [
+        {
+          "title": "Terraform Docs — Custom Conditions (pre/postconditions)",
+          "url": "https://developer.hashicorp.com/terraform/language/expressions/custom-conditions"
+        },
+        {
+          "title": "Terraform Docs — Lifecycle Meta-Argument",
+          "url": "https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle"
+        }
+      ]
+    },
+    {
+      "title": "tflint, terraform validate, terraform fmt: качество кода",
+      "level": "🟡 Middle",
+      "explanation": "<p>Три инструмента для поддержания качества Terraform-кода, обычно встроенные в pre-commit хуки и CI pipeline.</p><ul><li><code>terraform fmt</code> — приводит код к каноническому стилю форматирования (отступы, выравнивание знаков =).</li><li><code>terraform validate</code> — проверяет синтаксическую корректность и внутреннюю согласованность конфигурации (без обращения к провайдеру за реальным state).</li><li><strong>tflint</strong> — линтер, который находит проблемы, невидимые для validate: неиспользуемые переменные, устаревшие типы инстансов, ошибки специфичные для провайдера (через плагины, например tflint-ruleset-aws).</li></ul><pre><code>terraform fmt -recursive -check\nterraform validate\n\ntflint --init\ntflint --recursive</code></pre><p>Типичный шаг CI-pipeline:</p><pre><code>stage: lint\nscript:\n  - terraform fmt -check -recursive\n  - terraform init -backend=false\n  - terraform validate\n  - tflint --recursive</code></pre><table><tr><th>Инструмент</th><th>Что проверяет</th></tr><tr><td>fmt</td><td>стиль/форматирование</td></tr><tr><td>validate</td><td>синтаксис, типы, ссылки</td></tr><tr><td>tflint</td><td>best practices, provider-специфичные ошибки</td></tr></table><p>Эти проверки должны блокировать merge request при провале — это дешёвый способ отловить ошибки до terraform plan/apply.</p>",
+      "links": [
+        {
+          "title": "Terraform Docs — Command: fmt",
+          "url": "https://developer.hashicorp.com/terraform/cli/commands/fmt"
+        },
+        {
+          "title": "Terraform Docs — Command: validate",
+          "url": "https://developer.hashicorp.com/terraform/cli/commands/validate"
+        },
+        {
+          "title": "TFLint GitHub — линтер для Terraform",
+          "url": "https://github.com/terraform-linters/tflint"
+        }
+      ]
+    }
+  ],
+  "quiz": [
+    {
+      "q": "Какой блок HCL используется только для чтения существующего ресурса без управления им?",
+      "options": [
+        "resource",
+        "data",
+        "locals",
+        "module"
+      ],
+      "answer": 1,
+      "explain": "Блок data выполняет только чтение информации о существующем объекте, в отличие от resource, который создаёт и управляет ресурсом."
+    },
+    {
+      "q": "Что делает ограничение версии провайдера '~> 5.0'?",
+      "options": [
+        "Разрешает любую версию 5.x, кроме 6.0",
+        "Требует точно версию 5.0.0",
+        "Запрещает версии выше 5.0.0",
+        "Разрешает только версии ниже 5.0"
+      ],
+      "answer": 0,
+      "explain": "Оператор ~> (pessimistic constraint) фиксирует старшую часть версии и допускает обновления только в пределах патчей/минорных версий."
+    },
+    {
+      "q": "Какая команда применяет ранее сохранённый план из файла tfplan?",
+      "options": [
+        "terraform apply",
+        "terraform apply tfplan",
+        "terraform plan -apply tfplan",
+        "terraform show tfplan"
+      ],
+      "answer": 1,
+      "explain": "terraform apply с указанием файла плана (tfplan) применяет именно тот проверенный план, а не пересчитывает его заново."
+    },
+    {
+      "q": "Зачем нужен DynamoDB при использовании S3 как backend для state?",
+      "options": [
+        "Для хранения самого файла state",
+        "Для кеширования плана",
+        "Для реализации state locking",
+        "Для хранения переменных окружения"
+      ],
+      "answer": 2,
+      "explain": "DynamoDB используется для блокировки state (state locking), предотвращая одновременное изменение state несколькими процессами."
+    },
+    {
+      "q": "В чём ключевое отличие for_each от count при создании нескольких ресурсов?",
+      "options": [
+        "for_each работает только с числами",
+        "count поддерживает карты (map), а for_each — нет",
+        "for_each адресует ресурсы по ключу, что устойчивее к изменению состава списка",
+        "count быстрее выполняется всегда"
+      ],
+      "answer": 2,
+      "explain": "for_each использует уникальные ключи вместо числовых индексов, поэтому удаление элемента из середины набора не вызывает пересоздание остальных ресурсов, как может произойти с count."
+    },
+    {
+      "q": "Что позволяет сделать dynamic block в Terraform?",
+      "options": [
+        "Динамически менять provider во время apply",
+        "Генерировать повторяющиеся вложенные блоки внутри ресурса на основе for_each",
+        "Создавать динамические переменные окружения",
+        "Автоматически обновлять state без lock"
+      ],
+      "answer": 1,
+      "explain": "dynamic block генерирует набор вложенных блоков (например, ingress-правил) на основе коллекции, избегая ручного дублирования кода."
+    },
+    {
+      "q": "Что делает terraform import?",
+      "options": [
+        "Импортирует модуль из Terraform Registry",
+        "Добавляет существующий облачный ресурс в state без его пересоздания",
+        "Импортирует переменные из файла .tfvars",
+        "Копирует state из одного workspace в другой"
+      ],
+      "answer": 1,
+      "explain": "terraform import связывает уже существующий в облаке объект с ресурсом, описанным в конфигурации, записывая его в state без создания заново."
+    },
+    {
+      "q": "Когда срабатывает precondition в блоке lifecycle?",
+      "options": [
+        "После создания ресурса, на основе его фактических атрибутов",
+        "До создания или изменения ресурса, до обращения к провайдеру",
+        "Только во время terraform destroy",
+        "Только при выполнении terraform fmt"
+      ],
+      "answer": 1,
+      "explain": "precondition проверяется до применения изменений к ресурсу, тогда как postcondition проверяется после, на основе self (фактических атрибутов)."
+    },
+    {
+      "q": "Какой инструмент находит provider-специфичные проблемы (например, устаревший тип инстанса), которые не видит terraform validate?",
+      "options": [
+        "terraform fmt",
+        "tflint",
+        "terraform show",
+        "terraform state list"
+      ],
+      "answer": 1,
+      "explain": "tflint — линтер с плагинами под конкретных провайдеров, который ловит семантические и best-practice проблемы, невидимые для стандартного validate."
+    },
+    {
+      "q": "Для чего используется terraform.workspace в коде ресурса?",
+      "options": [
+        "Для указания версии Terraform CLI",
+        "Для получения имени текущего workspace и параметризации ресурсов по окружению",
+        "Для смены backend без миграции state",
+        "Для запуска terraform apply в фоне"
+      ],
+      "answer": 1,
+      "explain": "Переменная terraform.workspace возвращает имя активного workspace (например, dev или prod), что позволяет менять параметры ресурсов в зависимости от окружения без дублирования кода."
+    }
+  ]
+}

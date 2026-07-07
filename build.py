@@ -86,6 +86,11 @@ h2.section-title{font-size:34px;margin:6px 0 4px;line-height:1.2}
 .topic-body table{border-collapse:collapse;margin:.8em 0;font-size:14px}
 .topic-body td,.topic-body th{border:1px solid var(--line);padding:5px 10px;text-align:left}
 .topic-body th{background:#f0ede5}
+.deep-links{margin-top:16px;border-top:1px dashed var(--line);padding-top:12px}
+.deep-links .dl-title{font-family:Consolas,monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.deep-links ul{margin:0;padding-left:20px;font-size:14px}
+.deep-links a{color:#1f5fa8;text-decoration:none}
+.deep-links a:hover{text-decoration:underline}
 /* Quiz */
 #quiz-block{margin-top:48px;border-top:3px double var(--line);padding-top:28px}
 #quiz-block h3{font-size:24px;margin:0 0 4px}
@@ -199,7 +204,7 @@ function showSection(id){
       + '<span class="topic-title">'+esc(t.title)+'</span>'
       + '<span class="topic-level">'+esc(t.level)+'</span>'
       + '<input type="checkbox" class="topic-check" '+checked+' onclick="event.stopPropagation();markRead('+s.id+','+ti+',this.checked)" title="отметить изученным">'
-      + '</div><div class="topic-body">'+t.explanation+'</div></div>';
+      + '</div><div class="topic-body">'+t.explanation+linksHtml(t)+'</div></div>';
   });
   h += '<div id="quiz-block" style="--pc:'+ph[2]+'"><h3>Проверьте себя</h3><p class="section-meta">Выберите ответы и нажмите «Проверить».</p>';
   s.quiz.forEach((q,qi)=>{
@@ -217,6 +222,12 @@ function showSection(id){
   document.getElementById('nav').classList.remove('open');
 }
 
+function linksHtml(t){
+  if(!t.links || !t.links.length) return '';
+  let h = '<div class="deep-links"><div class="dl-title">📚 Углубиться в тему</div><ul>';
+  t.links.forEach(l=>{ h += '<li><a href="'+esc(l.url)+'" target="_blank" rel="noopener">'+esc(l.title)+'</a></li>'; });
+  return h + '</ul></div>';
+}
 function toggleTopic(ti){ document.getElementById('t'+ti).classList.toggle('open'); }
 function markRead(sid,ti,v){ state.read[sid+':'+ti]=v; save(); renderNav(sid); }
 
